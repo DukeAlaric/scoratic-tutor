@@ -319,4 +319,3 @@ class TutorEngine:
             return {"phase": self.PHASE_DONE, "message": ai_response}
         
         return {"phase": self.PHASE_REFLECT, "message": ai_response}
-"@ | Out-File -FilePath "C:\Users\sarti\scoratic-tutor\core_engine.py" -Encoding UTF8
