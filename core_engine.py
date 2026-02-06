@@ -1,5 +1,5 @@
 """
-Core Engine for Socratic Writing Tutor v1.0
+Core Engine for Socratic Writing Tutor v1.1
 """
 
 import json
@@ -28,7 +28,6 @@ class SocraticMemory:
         self.reflection_step = 0
         self.session_complete = False
         self.max_coaching_turns = 15
-        self.roadmap_shown = False
 
     def add_essay(self, essay_text):
         self.essay_versions.append(essay_text)
@@ -183,10 +182,11 @@ def generate_improvement_insight(memory, new_scores):
     if not improvements:
         return ""
     
-    system = """You are a writing coach giving brief, specific feedback. 
+    system = """You are a writing coach giving brief, specific feedback on ACADEMIC writing improvement.
 The student improved their writing. In 2-3 sentences, point out ONE concrete 
 thing that changed between their original and revised essay that caused the 
-improvement. Be specific - quote a phrase or describe a technique. 
+improvement. Focus on: use of evidence, academic language, signal phrases, 
+analysis depth, or structure. Be specific - quote a phrase or describe a technique. 
 Do not be generic. Start with 'Notice how...' or 'Look at the difference -' """
     
     user_msg = f"""The student improved in: {', '.join(improvements)}
@@ -203,17 +203,24 @@ What specifically changed?"""
 
 
 def generate_first_try_analysis(essay):
-    system = """You are a writing coach celebrating a student who wrote an excellent response on their first try.
+    system = """You are a writing coach analyzing why a student's ACADEMIC essay succeeded on the first try.
 
 Write 2 short paragraphs:
 
 PARAGRAPH 1 - WHAT YOU DID WELL:
-Point out 2-3 specific things they did well. Quote short phrases from their essay. Be specific, not generic.
+Point out 2-3 specific things they did well. Focus on academic writing skills:
+- Use of evidence with signal phrases
+- Academic vocabulary and tone
+- Clear thesis statement
+- Analysis that goes beyond summary
+Quote short phrases from their essay as examples.
 
 PARAGRAPH 2 - WHY THIS WORKED:
-Explain WHY these choices made their writing strong. Help them understand the principle so they can repeat it.
+Explain WHY these academic writing choices made their essay strong. Help them 
+understand the principle so they can repeat it in other classes.
 
-TONE: Warm and genuine, but not over-the-top. Use phrases like "This works because..." or "Your choice to..." rather than "Wow!" or "Brilliant!"
+TONE: Warm and genuine, but not over-the-top. Use phrases like "This works because..." 
+or "Your choice to..." rather than "Wow!" or "Brilliant!"
 
 Keep it to 4-6 sentences total."""
     
@@ -222,7 +229,6 @@ Keep it to 4-6 sentences total."""
 
 
 def get_varied_celebration_opener(revision_count):
-    """Return varied celebration language to avoid praise saturation."""
     if revision_count == 1:
         openers = [
             "You got there in just one revision.",
@@ -233,7 +239,7 @@ def get_varied_celebration_opener(revision_count):
         openers = [
             f"After {revision_count} revisions, you made it.",
             f"It took {revision_count} rounds of revision, and you pushed through.",
-            f"{revision_count} revisions later, your essay is where it needs to be."
+            f"{revision_count} revisions later, your essay meets the standard."
         ]
     return random.choice(openers)
 
@@ -246,17 +252,16 @@ def build_celebration_message(memory, new_scores):
         f_score = new_scores.get(dim, {}).get("score", 0)
         if f_score > i_score:
             dim_name = VALUE_RUBRIC[dim]["name"]
-            improvements.append(f"**{dim_name}**: {i_score} → {f_score}")
+            improvements.append(f"**{dim_name}**: {i_score} -> {f_score}")
     
     original_essay = memory.essay_versions[0] if memory.essay_versions else ""
     final_essay = memory.get_latest_essay()
     
     insight = generate_improvement_insight(memory, new_scores)
     
-    # Varied opener instead of always "Look at how far you've come!"
     opener = get_varied_celebration_opener(memory.revision_count)
     
-    msg = f"## ✓ {opener}\n\n"
+    msg = f"## {opener}\n\n"
     
     if improvements:
         msg += "**What changed:**\n"
@@ -299,7 +304,7 @@ class TutorEngine:
             essay = self.memory.get_latest_essay()
             analysis = generate_first_try_analysis(essay)
             
-            message = "## ✓ You hit all the targets on your first try.\n\n"
+            message = "## You hit all the targets on your first try.\n\n"
             message += "That doesn't happen often. Here's what worked:\n\n"
             message += f"{analysis}\n\n"
             message += "---\n\n"
@@ -322,8 +327,7 @@ class TutorEngine:
         coaching_q = generate_coaching_question(self.memory)
         self.memory.coaching_turns += 1
         
-        # Add roadmap prompt before first coaching question
-        roadmap_intro = f"**Before you revise**, take a moment to plan:\n\n{ROADMAP_PROMPT}\n\n---\n\n**Here's my first question for you:**\n\n"
+        roadmap_intro = f"**Before you revise**, take a moment to plan:\n\n{ROADMAP_PROMPT}\n\n---\n\n**Here's my feedback:**\n\n"
         
         return {
             "phase": self.PHASE_COACH,

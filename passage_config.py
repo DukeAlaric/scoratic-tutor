@@ -1,5 +1,5 @@
 """
-Passage Configuration for Socratic Writing Tutor v1.0
+Passage Configuration for Socratic Writing Tutor v1.1
 """
 
 PASSAGE_TITLE = "The Pineapple Pizza Debate"
@@ -49,6 +49,7 @@ Your response should:
 - State a clear position
 - Use at least ONE specific detail from the passage to support your argument
 - Explain your reasoning
+- Use academic language appropriate for a school essay
 """.strip()
 
 VALUE_RUBRIC = {
@@ -58,8 +59,8 @@ VALUE_RUBRIC = {
         "anchors": {
             1: "No clear position.",
             2: "Position is implied but vague.",
-            3: "Clear position stated.",
-            4: "Precise position that frames entire response."
+            3: "Clear position stated in academic language.",
+            4: "Precise thesis statement that frames the entire response with sophistication."
         }
     },
     "evidence_use": {
@@ -68,18 +69,18 @@ VALUE_RUBRIC = {
         "anchors": {
             1: "No reference to passage.",
             2: "Vague reference without specifics.",
-            3: "One specific detail used and connected.",
-            4: "Multiple details woven into argument."
+            3: "Specific detail cited with signal phrase (e.g., 'According to the passage...').",
+            4: "Multiple details integrated smoothly with proper attribution throughout."
         }
     },
     "reasoning_depth": {
         "name": "Reasoning Depth",
-        "description": "How well does the writer explain WHY?",
+        "description": "How well does the writer explain WHY with academic analysis?",
         "anchors": {
             1: "No explanation.",
-            2: "Shallow - restates without explaining.",
-            3: "Explains connection with analysis.",
-            4: "Deep analysis of implications."
+            2: "Shallow - restates or uses only personal opinion.",
+            3: "Explains connection with analysis using appropriate academic language.",
+            4: "Deep analysis with hedging language, counterarguments addressed, and sophisticated vocabulary."
         }
     },
     "organization": {
@@ -87,19 +88,19 @@ VALUE_RUBRIC = {
         "description": "How logically structured is the response?",
         "anchors": {
             1: "No structure.",
-            2: "Some structure but jumpy.",
-            3: "Logical flow with transitions.",
-            4: "Strong progression throughout."
+            2: "Some structure but jumpy or missing transitions.",
+            3: "Logical flow with clear transitions between ideas.",
+            4: "Strong academic structure with introduction, body, conclusion, and seamless transitions."
         }
     },
     "voice_engagement": {
         "name": "Voice & Engagement",
-        "description": "Does it sound like a real person?",
+        "description": "Does it sound like a thoughtful student writer?",
         "anchors": {
-            1: "Flat or robotic.",
-            2: "Generic.",
-            3: "Some personality.",
-            4: "Distinctive voice throughout."
+            1: "Flat, robotic, or copied.",
+            2: "Generic or too casual (slang, texting style).",
+            3: "Engaged and clear while maintaining academic tone.",
+            4: "Distinctive perspective expressed through sophisticated academic language."
         }
     }
 }
@@ -109,21 +110,26 @@ TARGET_SCORE = 3
 
 EDGE_CASE_RULES = """Handle edge cases: off-topic but thoughtful gets gentle redirect,
 very short gets encouragement, jokes get acknowledged then redirected, copy-paste
-gets scored low on evidence, creative connections get rewarded."""
+gets scored low on evidence, creative connections get rewarded BUT guide toward
+academic register."""
 
-SCORING_SYSTEM_PROMPT = """You are a writing assessment engine. Score student
+SCORING_SYSTEM_PROMPT = """You are a writing assessment engine for academic essays. Score student
 responses against VALUE rubric. Return ONLY valid JSON.
+
+IMPORTANT: This is for SCHOOL writing. Casual language, slang, or texting-style writing
+should be scored lower on Voice & Engagement (max 2) even if it shows personality.
+Academic writing requires formal tone while still being engaging.
 
 RUBRIC:
 {rubric_text}
 
-RULES: Score 1-4 honestly. 3 = met standard. 4 = exceptional. Brief rationale each.
+RULES: Score 1-4 honestly. 3 = met standard with academic language. 4 = exceptional. Brief rationale each.
 
 RETURN FORMAT:
 {{"claim_clarity": {{"score": <int>, "rationale": "<string>"}}, "evidence_use": {{"score": <int>, "rationale": "<string>"}}, "reasoning_depth": {{"score": <int>, "rationale": "<string>"}}, "organization": {{"score": <int>, "rationale": "<string>"}}, "voice_engagement": {{"score": <int>, "rationale": "<string>"}}}}
 """
 
-COACHING_SYSTEM_PROMPT = """You are a Socratic writing coach. Ask questions, don't tell.
+COACHING_SYSTEM_PROMPT = """You are a Socratic writing coach helping students write ACADEMIC essays.
 
 DIMENSION: {dimension_name}
 SCORE: {current_score}/4, TARGET: {target_score}/4
@@ -135,13 +141,29 @@ ESSAY:
 PASSAGE:
 {passage}
 
-Ask ONE focused question. 2-4 sentences max. Reference their essay specifically.
+COACHING RULES:
+1. Ask ONE focused question. 2-4 sentences max.
+2. Reference something specific in their essay.
+3. If the student is stuck, offer ONE sentence starter.
 
-If the student seems stuck, you may offer ONE sentence starter like "This matters because..." or "This shows that..." but do not give them the answer."""
+ACADEMIC REGISTER GUIDANCE:
+If the writing is too casual (slang like "super gross," "it's dumb," personal rants without evidence, 
+texting language), you MUST guide them toward academic tone while preserving their ideas:
+
+- "You have strong ideas here. How would you express this in a way that sounds more like a school essay?"
+- "Instead of [casual phrase], try a more formal way to make this point."
+- "Academic writing uses phrases like 'The evidence suggests...' or 'This demonstrates that...'"
+- "Your opinion is clear - now back it up with something specific from the passage."
+
+You can validate their passion while redirecting: "I can tell you feel strongly about this - that energy 
+is good! Now let's channel it into language that would impress your teacher."
+
+Do NOT crush their voice. DO elevate their register."""
 
 MODEL_EXAMPLE_PROMPT = """Student's {dimension_name} score didn't improve.
-Show a SHORT before/after example on a DIFFERENT topic. Explain what changed.
-Ask them to try similar. Under 150 words. Don't rewrite their essay."""
+Show a SHORT before/after example on a DIFFERENT topic demonstrating academic register.
+The "before" should be casual/conversational. The "after" should be academic but still engaging.
+Explain what changed. Ask them to try similar. Under 150 words. Don't rewrite their essay."""
 
 ROADMAP_PROMPT = """Before you revise, take a moment to plan. What are the 2-3 main ideas you want your essay to cover? You don't need to write full sentences - just name the ideas you want to include."""
 
