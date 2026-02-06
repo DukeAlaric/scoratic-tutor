@@ -1,5 +1,5 @@
 """
-Core Engine for Socratic Writing Tutor v0.7
+Core Engine for Socratic Writing Tutor v0.8
 """
 
 import json
@@ -166,6 +166,41 @@ def generate_reflection_response(memory, student_response):
     return call_claude(system, f"Student said: {student_response}", max_tokens=300)
 
 
+def generate_improvement_insight(memory, new_scores):
+    """Ask Claude to explain WHAT specifically improved in the writing."""
+    initial = memory.get_initial_scores()
+    original_essay = memory.essay_versions[0] if memory.essay_versions else ""
+    final_essay = memory.get_latest_essay()
+    
+    improvements = []
+    for dim in DIMENSION_ORDER:
+        i_score = initial.get(dim, {}).get("score", 0)
+        f_score = new_scores.get(dim, {}).get("score", 0)
+        if f_score > i_score:
+            improvements.append(VALUE_RUBRIC[dim]["name"])
+    
+    if not improvements:
+        return ""
+    
+    system = """You are a writing coach giving brief, specific feedback. 
+The student improved their writing. In 2-3 sentences, point out ONE concrete 
+thing that changed between their original and revised essay that caused the 
+improvement. Be specific — quote a phrase or describe a technique. 
+Don't be generic. Start with "Notice how..." or "Look at the difference —" """
+    
+    user_msg = f"""The student improved in: {', '.join(improvements)}
+
+ORIGINAL ESSAY:
+{original_essay}
+
+REVISED ESSAY:
+{final_essay}
+
+What specifically changed?"""
+    
+    return call_claude(system, user_msg, max_tokens=200)
+
+
 def build_celebration_message(memory, new_scores):
     initial = memory.get_initial_scores()
     improvements = []
@@ -179,8 +214,19 @@ def build_celebration_message(memory, new_scores):
     original_essay = memory.essay_versions[0] if memory.essay_versions else ""
     final_essay = memory.get_latest_essay()
     
+    # Get specific insight about what improved
+    insight = generate_improvement_insight(memory, new_scores)
+    
+    # Build the message
     msg = "## 🎉 Look at how far you've come!\n\n"
     
+    # Acknowledge effort
+    if memory.revision_count == 1:
+        msg += f"After **{memory.revision_count} revision** and some focused thinking, you did it!\n\n"
+    else:
+        msg += f"After **{memory.revision_count} revisions** and some hard work, you did it!\n\n"
+    
+    # Show score improvements
     if improvements:
         msg += "**Your growth:**\n"
         for imp in improvements:
@@ -189,14 +235,24 @@ def build_celebration_message(memory, new_scores):
     else:
         msg += "You maintained strong scores across all dimensions!\n\n"
     
+    # Show specific insight about what changed
+    if insight:
+        msg += f"**What made the difference:**\n{insight}\n\n"
+    
     msg += "---\n\n"
+    
+    # Show before/after
     msg += "**Where you started:**\n"
-    msg += f"> {original_essay[:300]}{'...' if len(original_essay) > 300 else ''}\n\n"
+    msg += f"> {original_essay}\n\n"
     msg += "**Where you are now:**\n"
-    msg += f"> {final_essay[:300]}{'...' if len(final_essay) > 300 else ''}\n\n"
+    msg += f"> {final_essay}\n\n"
+    
     msg += "---\n\n"
-    msg += "You've done real work here — your writing is stronger than when we started. "
-    msg += "Now let's take a moment to reflect on what you discovered in this process..."
+    
+    # Preview reflection
+    msg += "You've done real work here — your writing is noticeably stronger. "
+    msg += "**Now let's lock in what you learned** so you can use these skills next time. "
+    msg += "I'll ask you a few quick reflection questions..."
     
     return msg
 
@@ -281,12 +337,16 @@ class TutorEngine:
         
         elif new_score <= old_score and not self.memory.model_mode_used.get(dim_key, False):
             self.memory.model_mode_used[dim_key] = True
+            dim_name = VALUE_RUBRIC[dim_key]["name"]
             model_example = generate_model_example(self.memory)
             self.memory.coaching_turns += 1
+            
+            transition = f"I can see you're working hard on this, but your **{dim_name}** score hasn't moved yet — and that's okay! Sometimes it helps to see a concrete example of what I'm talking about.\n\n"
+            
             return {
                 "phase": self.PHASE_COACH,
                 "scores": new_scores,
-                "coaching_question": model_example,
+                "coaching_question": transition + model_example,
                 "dimension": dim_key,
                 "is_model_mode": True
             }
