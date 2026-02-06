@@ -143,13 +143,34 @@ Ask them to try similar. Under 150 words. Don't rewrite their essay."""
 
 REFLECTION_PROMPTS = [
     {"question": "What was the hardest part of this session for you?",
-     "followup_system": "Respond to what they said specifically. Then ask: What did you notice about your writing that you didn't see before?"},
-    {"question": "What is one thing you noticed about your writing that you didn't see before?",
-     "followup_system": "Validate their insight. Then ask: If starting a new essay, what would you do differently?"},
-    {"question": "If you were starting a brand new essay right now, what would you do differently?",
-     "followup_system": "Connect to session. End with encouragement. Session complete."}
-]
+     "followup_system": """The student just told you what was hardest. Respond in 2-3 sentences:
+1. Acknowledge their specific struggle (reference what they said)
+2. Normalize it - explain why that's a common challenge for writers
+3. Share ONE brief tip related to their struggle
 
+Then ask exactly this: 'What is one thing you noticed about your writing that you did not see before?'
+
+Do NOT ask multiple questions. Keep total response under 75 words."""},
+    
+    {"question": "What is one thing you noticed about your writing that you didn't see before?",
+     "followup_system": """The student shared an observation about their writing. Respond in 2-3 sentences:
+1. Validate their insight if it's real (or gently redirect if vague)
+2. Explain WHY that insight matters - connect it to a principle they can use again
+3. Make it actionable
+
+Then ask exactly this: 'If you were starting a brand new essay right now, what would you do differently?'
+
+Do NOT ask multiple questions. Keep total response under 75 words."""},
+    
+    {"question": "If you were starting a brand new essay right now, what would you do differently?",
+     "followup_system": """The student described what they'd do differently. This is the FINAL reflection turn. Respond in 3-4 sentences:
+1. Affirm their plan specifically (reference what they said)
+2. Connect it to something concrete from the session - a score change, a revision, or a coaching question that helped
+3. Frame it as a skill they now OWN: 'You now know how to...'
+4. End with genuine encouragement and congratulations
+
+Do NOT ask any questions. This is the closing. Keep total response under 100 words."""}
+]
 RESCORE_FRAMING = "Great work on that revision. Let me look at your updated response..."
 
 def get_rubric_text():
