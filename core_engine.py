@@ -1,15 +1,16 @@
 """
-Core Engine for Socratic Writing Tutor v0.8
+Core Engine for Socratic Writing Tutor v1.0
 """
 
 import json
 import re
+import random
 import anthropic
 import streamlit as st
 from passage_config import (
     VALUE_RUBRIC, DIMENSION_ORDER, TARGET_SCORE,
     SCORING_SYSTEM_PROMPT, COACHING_SYSTEM_PROMPT,
-    MODEL_EXAMPLE_PROMPT, REFLECTION_PROMPTS,
+    MODEL_EXAMPLE_PROMPT, REFLECTION_PROMPTS, ROADMAP_PROMPT,
     PASSAGE_TEXT, EDGE_CASE_RULES, get_rubric_text
 )
 
@@ -27,6 +28,7 @@ class SocraticMemory:
         self.reflection_step = 0
         self.session_complete = False
         self.max_coaching_turns = 15
+        self.roadmap_shown = False
 
     def add_essay(self, essay_text):
         self.essay_versions.append(essay_text)
@@ -206,15 +208,34 @@ def generate_first_try_analysis(essay):
 Write 2 short paragraphs:
 
 PARAGRAPH 1 - WHAT YOU DID WELL:
-Point out 2-3 specific things they did exceptionally well. Quote short phrases from their essay as examples. Be specific, not generic.
+Point out 2-3 specific things they did well. Quote short phrases from their essay. Be specific, not generic.
 
 PARAGRAPH 2 - WHY THIS WORKED:
-Explain WHY these choices made their writing strong. Help them understand the principle behind their success so they can repeat it. For example: 'When you shared your personal experience, it did two things - it gave you a unique perspective AND it made your argument feel authentic rather than abstract.'
+Explain WHY these choices made their writing strong. Help them understand the principle so they can repeat it.
 
-Keep it warm and conversational. Total length: 4-6 sentences."""
+TONE: Warm and genuine, but not over-the-top. Use phrases like "This works because..." or "Your choice to..." rather than "Wow!" or "Brilliant!"
+
+Keep it to 4-6 sentences total."""
     
     user_msg = f"ESSAY:\n{essay}\n\nSCORES: All 5 dimensions scored 3 or higher on first attempt."
     return call_claude(system, user_msg, max_tokens=350)
+
+
+def get_varied_celebration_opener(revision_count):
+    """Return varied celebration language to avoid praise saturation."""
+    if revision_count == 1:
+        openers = [
+            "You got there in just one revision.",
+            "One revision was all it took.",
+            "After a single focused revision, you hit the target."
+        ]
+    else:
+        openers = [
+            f"After {revision_count} revisions, you made it.",
+            f"It took {revision_count} rounds of revision, and you pushed through.",
+            f"{revision_count} revisions later, your essay is where it needs to be."
+        ]
+    return random.choice(openers)
 
 
 def build_celebration_message(memory, new_scores):
@@ -225,27 +246,23 @@ def build_celebration_message(memory, new_scores):
         f_score = new_scores.get(dim, {}).get("score", 0)
         if f_score > i_score:
             dim_name = VALUE_RUBRIC[dim]["name"]
-            improvements.append(f"**{dim_name}** went from {i_score} to {f_score}")
+            improvements.append(f"**{dim_name}**: {i_score} → {f_score}")
     
     original_essay = memory.essay_versions[0] if memory.essay_versions else ""
     final_essay = memory.get_latest_essay()
     
     insight = generate_improvement_insight(memory, new_scores)
     
-    msg = "## 🎉 Look at how far you've come!\n\n"
+    # Varied opener instead of always "Look at how far you've come!"
+    opener = get_varied_celebration_opener(memory.revision_count)
     
-    if memory.revision_count == 1:
-        msg += f"After **{memory.revision_count} revision** and some focused thinking, you did it!\n\n"
-    else:
-        msg += f"After **{memory.revision_count} revisions** and some hard work, you did it!\n\n"
+    msg = f"## ✓ {opener}\n\n"
     
     if improvements:
-        msg += "**Your growth:**\n"
+        msg += "**What changed:**\n"
         for imp in improvements:
             msg += f"- {imp}\n"
         msg += "\n"
-    else:
-        msg += "You maintained strong scores across all dimensions!\n\n"
     
     if insight:
         msg += f"**What made the difference:**\n{insight}\n\n"
@@ -256,9 +273,7 @@ def build_celebration_message(memory, new_scores):
     msg += "**Where you are now:**\n"
     msg += f"> {final_essay}\n\n"
     msg += "---\n\n"
-    msg += "You've done real work here - your writing is noticeably stronger. "
-    msg += "**Now let's lock in what you learned** so you can use these skills next time. "
-    msg += "I'll ask you a few quick reflection questions..."
+    msg += "Your writing is stronger now. Let's take a few minutes to reflect on what you learned so you can use these skills again."
     
     return msg
 
@@ -284,14 +299,14 @@ class TutorEngine:
             essay = self.memory.get_latest_essay()
             analysis = generate_first_try_analysis(essay)
             
-            message = "## 🎉 Wow - you nailed it on the first try!\n\n"
-            message += "Most writers need a revision or two to hit all the targets. You got there right away. Let me show you why:\n\n"
+            message = "## ✓ You hit all the targets on your first try.\n\n"
+            message += "That doesn't happen often. Here's what worked:\n\n"
             message += f"{analysis}\n\n"
             message += "---\n\n"
             message += "**Your essay:**\n"
             message += f"> {essay}\n\n"
             message += "---\n\n"
-            message += "Since your writing is already strong, let's reflect on your process so you can **repeat this success** next time..."
+            message += "Since your writing is already strong, let's reflect on your process so you can repeat this next time."
             
             return {
                 "phase": self.PHASE_REFLECT,
@@ -307,10 +322,13 @@ class TutorEngine:
         coaching_q = generate_coaching_question(self.memory)
         self.memory.coaching_turns += 1
         
+        # Add roadmap prompt before first coaching question
+        roadmap_intro = f"**Before you revise**, take a moment to plan:\n\n{ROADMAP_PROMPT}\n\n---\n\n**Here's my first question for you:**\n\n"
+        
         return {
             "phase": self.PHASE_COACH,
             "scores": scores,
-            "coaching_question": coaching_q,
+            "coaching_question": roadmap_intro + coaching_q,
             "dimension": self.memory.current_dimension
         }
 
@@ -359,7 +377,7 @@ class TutorEngine:
             model_example = generate_model_example(self.memory)
             self.memory.coaching_turns += 1
             
-            transition = f"I can see you're working hard on this, but your **{dim_name}** score hasn't moved yet - and that's okay! Sometimes it helps to see a concrete example of what I'm talking about.\n\n"
+            transition = f"Your **{dim_name}** score hasn't moved yet, and that's okay - this one can be tricky. Let me show you an example of what I mean:\n\n"
             
             return {
                 "phase": self.PHASE_COACH,
@@ -387,7 +405,7 @@ class TutorEngine:
         step = self.memory.reflection_step
         if step >= len(REFLECTION_PROMPTS):
             self.memory.session_complete = True
-            return {"phase": self.PHASE_DONE, "message": "Session complete. Great work today! 🎈"}
+            return {"phase": self.PHASE_DONE, "message": "Session complete. Well done today."}
         
         ai_response = generate_reflection_response(self.memory, student_response)
         self.memory.reflection_step += 1
