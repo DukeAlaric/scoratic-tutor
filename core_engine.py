@@ -1,4 +1,3 @@
-@"
 """
 Core Engine for Socratic Writing Tutor v0.7
 """
