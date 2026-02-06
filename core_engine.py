@@ -167,7 +167,6 @@ def generate_reflection_response(memory, student_response):
 
 
 def generate_improvement_insight(memory, new_scores):
-    """Ask Claude to explain WHAT specifically improved in the writing."""
     initial = memory.get_initial_scores()
     original_essay = memory.essay_versions[0] if memory.essay_versions else ""
     final_essay = memory.get_latest_essay()
@@ -185,8 +184,8 @@ def generate_improvement_insight(memory, new_scores):
     system = """You are a writing coach giving brief, specific feedback. 
 The student improved their writing. In 2-3 sentences, point out ONE concrete 
 thing that changed between their original and revised essay that caused the 
-improvement. Be specific — quote a phrase or describe a technique. 
-Don't be generic. Start with "Notice how..." or "Look at the difference —" """
+improvement. Be specific - quote a phrase or describe a technique. 
+Do not be generic. Start with 'Notice how...' or 'Look at the difference -' """
     
     user_msg = f"""The student improved in: {', '.join(improvements)}
 
@@ -199,6 +198,23 @@ REVISED ESSAY:
 What specifically changed?"""
     
     return call_claude(system, user_msg, max_tokens=200)
+
+
+def generate_first_try_analysis(essay):
+    system = """You are a writing coach celebrating a student who wrote an excellent response on their first try.
+
+Write 2 short paragraphs:
+
+PARAGRAPH 1 - WHAT YOU DID WELL:
+Point out 2-3 specific things they did exceptionally well. Quote short phrases from their essay as examples. Be specific, not generic.
+
+PARAGRAPH 2 - WHY THIS WORKED:
+Explain WHY these choices made their writing strong. Help them understand the principle behind their success so they can repeat it. For example: 'When you shared your personal experience, it did two things - it gave you a unique perspective AND it made your argument feel authentic rather than abstract.'
+
+Keep it warm and conversational. Total length: 4-6 sentences."""
+    
+    user_msg = f"ESSAY:\n{essay}\n\nSCORES: All 5 dimensions scored 3 or higher on first attempt."
+    return call_claude(system, user_msg, max_tokens=350)
 
 
 def build_celebration_message(memory, new_scores):
@@ -214,19 +230,15 @@ def build_celebration_message(memory, new_scores):
     original_essay = memory.essay_versions[0] if memory.essay_versions else ""
     final_essay = memory.get_latest_essay()
     
-    # Get specific insight about what improved
     insight = generate_improvement_insight(memory, new_scores)
     
-    # Build the message
     msg = "## 🎉 Look at how far you've come!\n\n"
     
-    # Acknowledge effort
     if memory.revision_count == 1:
         msg += f"After **{memory.revision_count} revision** and some focused thinking, you did it!\n\n"
     else:
         msg += f"After **{memory.revision_count} revisions** and some hard work, you did it!\n\n"
     
-    # Show score improvements
     if improvements:
         msg += "**Your growth:**\n"
         for imp in improvements:
@@ -235,22 +247,16 @@ def build_celebration_message(memory, new_scores):
     else:
         msg += "You maintained strong scores across all dimensions!\n\n"
     
-    # Show specific insight about what changed
     if insight:
         msg += f"**What made the difference:**\n{insight}\n\n"
     
     msg += "---\n\n"
-    
-    # Show before/after
     msg += "**Where you started:**\n"
     msg += f"> {original_essay}\n\n"
     msg += "**Where you are now:**\n"
     msg += f"> {final_essay}\n\n"
-    
     msg += "---\n\n"
-    
-    # Preview reflection
-    msg += "You've done real work here — your writing is noticeably stronger. "
+    msg += "You've done real work here - your writing is noticeably stronger. "
     msg += "**Now let's lock in what you learned** so you can use these skills next time. "
     msg += "I'll ask you a few quick reflection questions..."
     
@@ -275,10 +281,22 @@ class TutorEngine:
         self.memory.add_scores(scores)
         
         if self.memory.all_dimensions_at_target():
+            essay = self.memory.get_latest_essay()
+            analysis = generate_first_try_analysis(essay)
+            
+            message = "## 🎉 Wow - you nailed it on the first try!\n\n"
+            message += "Most writers need a revision or two to hit all the targets. You got there right away. Let me show you why:\n\n"
+            message += f"{analysis}\n\n"
+            message += "---\n\n"
+            message += "**Your essay:**\n"
+            message += f"> {essay}\n\n"
+            message += "---\n\n"
+            message += "Since your writing is already strong, let's reflect on your process so you can **repeat this success** next time..."
+            
             return {
                 "phase": self.PHASE_REFLECT,
                 "scores": scores,
-                "message": "🎉 **Impressive!** Your response is strong across the board right from the start. Let's reflect on your process."
+                "message": message
             }
         
         weak = self.memory.get_weakest_dimensions()
@@ -341,7 +359,7 @@ class TutorEngine:
             model_example = generate_model_example(self.memory)
             self.memory.coaching_turns += 1
             
-            transition = f"I can see you're working hard on this, but your **{dim_name}** score hasn't moved yet — and that's okay! Sometimes it helps to see a concrete example of what I'm talking about.\n\n"
+            transition = f"I can see you're working hard on this, but your **{dim_name}** score hasn't moved yet - and that's okay! Sometimes it helps to see a concrete example of what I'm talking about.\n\n"
             
             return {
                 "phase": self.PHASE_COACH,
