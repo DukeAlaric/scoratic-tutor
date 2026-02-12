@@ -87,7 +87,7 @@ class PreSubmissionValidator:
         checks.append({
             "objective": "POSITION",
             "status": "present" if has_position else ("weak" if word_count > 20 else "missing"),
-            "tip": "" if has_position else "Try starting with a clear stance — what do you believe?"
+            "tip": "" if has_position else "Strong essays start with a clear stance — it gives your reader (and your argument) a direction to follow."
         })
 
         found = [m for m in self.EVIDENCE_MARKERS if m in lower]
@@ -95,27 +95,27 @@ class PreSubmissionValidator:
         checks.append({
             "objective": "EVIDENCE",
             "status": ev_status,
-            "tip": "" if ev_status == "present" else "Reference specific facts — dates, names, statistics from the passage."
+            "tip": "" if ev_status == "present" else "Specific facts (dates, names, statistics) make your argument credible — without them, it's just opinion."
         })
 
         has_reasoning = any(r in lower for r in self.REASONING_WORDS)
         checks.append({
             "objective": "REASONING",
             "status": "present" if has_reasoning else ("weak" if word_count > 30 else "missing"),
-            "tip": "" if has_reasoning else "Explain WHY — use 'because', 'this shows', or 'this means'."
+            "tip": "" if has_reasoning else "Evidence alone doesn't argue for you — explaining WHY it matters is what turns facts into an argument."
         })
 
         checks.append({
             "objective": "STRUCTURE",
             "status": "present" if len(sentences) >= 4 else ("weak" if len(sentences) >= 2 else "missing"),
-            "tip": "" if len(sentences) >= 4 else "Develop your ideas across multiple sentences — aim for 4-5."
+            "tip": "" if len(sentences) >= 4 else "Developing your ideas across several sentences helps your reader follow your thinking step by step."
         })
 
         has_casual = any(c in lower for c in self.CASUAL_MARKERS)
         checks.append({
             "objective": "TONE",
             "status": "missing" if has_casual else ("present" if word_count > 15 else "weak"),
-            "tip": "Shift to academic language — replace casual phrases." if has_casual else ""
+            "tip": "Academic language shows your reader you're thinking carefully — try 'I believe' or 'the evidence suggests' instead." if has_casual else ""
         })
 
         present_count = sum(1 for c in checks if c["status"] in ("present", "weak"))
