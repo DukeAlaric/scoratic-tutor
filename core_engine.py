@@ -50,9 +50,12 @@ class PreSubmissionValidator:
     def validate(self, essay: str) -> dict:
         """Run pre-submission validation. Tries AI first, falls back to heuristics."""
         try:
-            return self._ai_check(essay)
+            import os
+            if os.environ.get("ANTHROPIC_API_KEY"):
+                return self._ai_check(essay)
         except Exception:
-            return self._heuristic_check(essay)
+            pass
+        return self._heuristic_check(essay)
 
     def _ai_check(self, essay: str) -> dict:
         prompt = PRE_VALIDATION_SYSTEM_PROMPT.format(
