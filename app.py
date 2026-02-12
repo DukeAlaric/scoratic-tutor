@@ -104,7 +104,15 @@ def main():
         st.markdown(WRITING_PROMPT)
 
         st.markdown("")
-        st.markdown("💡 *Tip: Don't overthink it — write your honest first draft. We'll work on improving it together.*")
+        st.markdown("""💡 *Tip: Don't overthink it — write your honest first draft. We'll work on improving it together.*""")
+        
+        st.markdown("""---
+**You have two coaches available:**
+
+🔍 **Check My Draft** — An informal quick-look that scans for the basics (position, evidence, reasoning, structure, tone) and shows you what's missing *before* you get scored. Use this as many times as you want to strengthen your draft.
+
+📝 **Submit for Feedback** — Your formal submission. This scores your writing on 5 dimensions and starts a Socratic coaching session where I'll ask you questions to help you improve. You can still revise after submitting.
+""")
         
         essay = st.text_area(
             "Your response:",
@@ -126,6 +134,7 @@ def main():
         
         with col2:
             if st.button("Submit for feedback", type="primary") and essay.strip():
+                st.session_state.draft_text = essay.strip()
                 result = engine.process_initial_essay(essay)
                 st.session_state.phase = result['phase']
                 st.session_state.messages.append({
@@ -250,11 +259,13 @@ def main():
         
         revision = st.text_area(
             "Your revised response:",
+            value=st.session_state.draft_text,
             height=200,
             placeholder="Write your revision here..."
         )
         
         if st.button("Submit revision", type="primary") and revision.strip():
+            st.session_state.draft_text = revision.strip()
             result = engine.process_revision(revision)
             st.session_state.phase = result['phase']
             st.session_state.messages.append({
