@@ -1,247 +1,365 @@
 """
 Socratic Writing Tutor - Streamlit App v1.2
+
+A Socratic tutoring system that helps students improve their argumentative writing
+through targeted questions, not direct answers.
 """
+
 import streamlit as st
 from core_engine import SocraticEngine
 from passage_config import (
-    PASSAGE_TITLE, PASSAGE_TEXT, WRITING_PROMPT,
-    VALUE_RUBRIC, DIMENSION_ORDER, TARGET_SCORE,
-    REFLECTION_PROMPTS, RESCORE_FRAMING
+    PASSAGE_TITLE, PASSAGE_TEXT, WRITING_PROMPT, 
+    VALUE_RUBRIC, DIMENSION_ORDER, TARGET_SCORE
 )
 
-st.set_page_config(page_title="Socratic Writing Tutor", page_icon="📝", layout="centered")
 
-# Session state
-if "engine" not in st.session_state:
-    st.session_state.engine = SocraticEngine()
-if "phase" not in st.session_state:
-    st.session_state.phase = "intro"
-if "messages" not in st.session_state:
-    st.session_state.messages = []
-if "awaiting_reflection" not in st.session_state:
-    st.session_state.awaiting_reflection = False
+def init_session():
+    """Initialize session state."""
+    if 'engine' not in st.session_state:
+        st.session_state.engine = SocraticEngine()
+    if 'phase' not in st.session_state:
+        st.session_state.phase = 'read'
+    if 'show_passage' not in st.session_state:
+        st.session_state.show_passage = True
+    if 'messages' not in st.session_state:
+        st.session_state.messages = []
+    if 'validation_result' not in st.session_state:
+        st.session_state.validation_result = None
+    if 'draft_text' not in st.session_state:
+        st.session_state.draft_text = ""
 
 
-def add_message(role, content):
-    st.session_state.messages.append({"role": role, "content": content})
-
-
-def render_score_card(scores, title="Your Scores"):
-    st.markdown(f"**{title}**")
+def render_scores(scores: dict):
+    """Render score display."""
     cols = st.columns(5)
-    for i, dim_key in enumerate(DIMENSION_ORDER):
-        dim = VALUE_RUBRIC[dim_key]
-        score_data = scores.get(dim_key, {})
-        score_val = score_data.get("score", "?")
+    for i, dim in enumerate(DIMENSION_ORDER):
         with cols[i]:
-            if isinstance(score_val, int):
-                if score_val >= TARGET_SCORE:
-                    color = "🟢"
-                elif score_val == TARGET_SCORE - 1:
-                    color = "🟡"
-                else:
-                    color = "🔴"
+            score = scores[dim]['score']
+            name = VALUE_RUBRIC[dim]['name']
+            
+            if score >= TARGET_SCORE:
+                color = "🟢"
+            elif score == 2:
+                color = "🟡"
             else:
-                color = "⚪"
-            st.metric(label=dim["name"], value=f"{color} {score_val}/4")
+                color = "🔴"
+            
+            st.markdown(f"**{name}**")
+            st.markdown(f"{color} {score}/4")
 
 
-def render_score_comparison(initial_scores, final_scores):
-    st.markdown("**Score Progress**")
-    for dim_key in DIMENSION_ORDER:
-        dim = VALUE_RUBRIC[dim_key]
-        i_score = initial_scores.get(dim_key, {}).get("score", "?")
-        f_score = final_scores.get(dim_key, {}).get("score", "?")
-        arrow = ""
-        if isinstance(i_score, int) and isinstance(f_score, int):
-            if f_score > i_score:
-                arrow = "⬆️"
-            elif f_score == i_score:
-                arrow = "➡️"
-            else:
-                arrow = "⬇️"
-        st.write(f"**{dim['name']}**: {i_score} → {f_score} {arrow}")
-
-
-def reset_session():
-    for key in list(st.session_state.keys()):
-        del st.session_state[key]
-    st.rerun()
-
-
-# Sidebar
-with st.sidebar:
-    st.markdown("## 📊 Session Status")
-    engine = st.session_state.engine
-    memory = engine.memory
-    phase = st.session_state.phase
-    st.write(f"**Phase:** {phase.title()}")
-    st.write(f"**Revisions:** {memory.get_revision_count()}")
-    st.write(f"**Coaching turns:** {memory.coaching_turns}")
-    if memory.scores_history:
-        st.markdown("---")
-        latest = memory.get_latest_scores()
-        for dim_key in DIMENSION_ORDER:
-            dim = VALUE_RUBRIC[dim_key]
-            s = latest.get(dim_key, {}).get("score", "?")
-            target_hit = "✅" if isinstance(s, int) and s >= TARGET_SCORE else "❌"
-            st.write(f"{target_hit} {dim['name']}: **{s}/4**")
-    st.markdown("---")
-    if st.button("🔄 Start Over", use_container_width=True):
-        reset_session()
-
-
-# Main content
-st.title("📝 Socratic Writing Tutor")
-
-# ---- PHASE: INTRO ----
-if st.session_state.phase == "intro":
-    st.markdown("### Welcome!")
-    st.markdown("""
-**Here's how this works:**
-
-1. **Read** a short passage about a debatable topic
-2. **Write** a response taking a clear position
-3. **Get feedback** - I'll score your writing on 5 dimensions and ask you questions to help you improve
-4. **Revise** your response based on our conversation
-5. **Reflect** on what you learned
-
-This is a Socratic tutor - I won't tell you what to write. Instead, I'll ask questions that help you discover how to make your writing stronger.
-
-**The goal:** Get all 5 dimensions to a score of 3/4 (meeting the standard).
-
-Ready?
-    """)
-    st.markdown("---")
-    if st.button("Let's get started! →", use_container_width=True):
-        st.session_state.phase = "read"
-        st.rerun()
-
-# ---- PHASE: READ ----
-elif st.session_state.phase == "read":
-    st.markdown("### Step 1: Read the Passage")
-    st.info("Take your time reading. You'll need to reference specific details in your response.")
-    st.markdown(f"**{PASSAGE_TITLE}**")
-    st.markdown(PASSAGE_TEXT)
-    st.markdown("---")
-    if st.button("I've read it - show me the writing prompt ✏️", use_container_width=True):
-        st.session_state.phase = "write"
-        st.rerun()
-
-# ---- PHASE: WRITE ----
-elif st.session_state.phase == "write":
-    st.markdown("### Step 2: Write Your Response")
-    with st.expander("📖 View passage again"):
-        st.markdown(PASSAGE_TEXT)
-    st.markdown(WRITING_PROMPT)
-    st.info("**Tip:** Don't overthink it - write your honest first draft. We'll work on improving it together.")
-    st.markdown("---")
-    essay = st.text_area("Your response:", height=250, placeholder="Write your response here...", key="initial_essay")
-    if st.button("Submit my response", use_container_width=True, disabled=len(essay.strip()) < 10):
-        with st.spinner("Reading your response..."):
-            result = st.session_state.engine.process_essay(essay.strip())
-            add_message("user", essay.strip())
-            add_message("assistant", result["message"])
-            st.session_state.phase = result["phase"]
-        st.rerun()
-
-# ---- PHASE: COACH ----
-elif st.session_state.phase == "coach":
-    st.markdown("### Step 3: Coaching Session")
-    st.info("Read my feedback below, then revise your response. We'll keep working until all dimensions hit the target.")
-    engine = st.session_state.engine
-    memory = engine.memory
+def main():
+    st.set_page_config(page_title="Socratic Writing Tutor", page_icon="📝")
     
-    if memory.scores_history:
-        render_score_card(memory.get_latest_scores())
-        st.markdown("---")
-
-    for msg in st.session_state.messages:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
-
-    st.markdown("---")
-    st.markdown("**Revise your response based on the coaching above:**")
-    with st.expander("📖 View passage"):
-        st.markdown(PASSAGE_TEXT)
-
-    current_essay = memory.get_latest_essay()
-    revised = st.text_area("Your revised response:", value=current_essay, height=250, key=f"revision_{memory.get_revision_count()}")
-
-    if st.button("Submit revision", use_container_width=True, disabled=len(revised.strip()) < 10):
-        with st.spinner(RESCORE_FRAMING):
-            result = st.session_state.engine.process_essay(revised.strip())
-            add_message("user", f"[Revision #{memory.get_revision_count()}]\n\n{revised.strip()}")
-            add_message("assistant", result["message"])
-            st.session_state.phase = result["phase"]
-        st.rerun()
-
-# ---- PHASE: REFLECT ----
-elif st.session_state.phase == "reflect":
-    st.markdown("### Step 4: Reflection")
-    st.info("Let's take a moment to think about what you learned during this session.")
-    engine = st.session_state.engine
-    memory = engine.memory
-
-    if len(memory.scores_history) >= 2:
-        render_score_comparison(memory.scores_history[0], memory.get_latest_scores())
-        st.markdown("---")
-    elif memory.scores_history:
-        render_score_card(memory.get_latest_scores(), "Final Scores")
-        st.markdown("---")
-
-    for msg in st.session_state.messages:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
-
-    # Get current reflection question
-    current_q = engine.get_current_reflection_question()
+    st.title("📝 Socratic Writing Tutor")
     
-    if current_q and not st.session_state.awaiting_reflection:
-        add_message("assistant", current_q)
-        st.session_state.awaiting_reflection = True
-        st.rerun()
-
-    if current_q:
-        reflection_input = st.text_input("Your response:", key=f"reflection_{memory.reflection_turn}", placeholder="Type your thoughts here...")
-        if st.button("Send", use_container_width=True, disabled=len(reflection_input.strip()) < 2):
-            add_message("user", reflection_input.strip())
-            with st.spinner("Thinking..."):
-                result = engine.process_reflection(reflection_input.strip())
-            add_message("assistant", result["message"])
-            st.session_state.awaiting_reflection = False
-            st.session_state.phase = result["phase"]
+    init_session()
+    engine = st.session_state.engine
+    
+    # Welcome message
+    if st.session_state.phase == 'read':
+        st.markdown("""
+        ## Welcome!
+        
+        Here's how this works:
+        
+        1. **Read** a short passage about a debatable topic
+        2. **Write** a response taking a clear position
+        3. **Get feedback** — I'll score your writing on 5 dimensions and ask you questions to help you improve
+        4. **Revise** your response based on our conversation
+        5. **Reflect** on what you learned
+        
+        This is a Socratic tutor — I won't tell you what to write. Instead, I'll ask questions that help you **discover** how to make your writing stronger.
+        
+        ---
+        
+        **The goal:** Get all 5 dimensions to a score of 3/4 (meeting the standard).
+        
+        **Ready?**
+        """)
+        
+        if st.button("Let's begin!", type="primary"):
+            st.session_state.phase = 'passage'
             st.rerun()
-    else:
-        st.session_state.phase = "done"
-        st.rerun()
-
-# ---- PHASE: DONE ----
-elif st.session_state.phase == "done":
-    st.markdown("### 🎉 Session Complete!")
-    engine = st.session_state.engine
-    memory = engine.memory
-
-    if len(memory.scores_history) >= 2:
-        render_score_comparison(memory.scores_history[0], memory.get_latest_scores())
-    elif memory.scores_history:
-        render_score_card(memory.get_latest_scores(), "Final Scores")
-
-    st.markdown("---")
-    for msg in st.session_state.messages:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
-
-    st.markdown("---")
-    st.balloons()
     
-    stats = engine.get_session_stats()
-    st.markdown(f"""
-**Session Stats:**
-- Revisions: {stats['revisions']}
-- Coaching turns: {stats['coaching_turns']}
-- Essay versions: {stats['essay_versions']}
-    """)
+    # Show passage
+    elif st.session_state.phase == 'passage':
+        st.markdown("## Step 1: Read the Passage")
+        st.info("Take your time reading. You'll need to reference specific details in your response.")
+        
+        st.markdown(f"### {PASSAGE_TITLE}")
+        st.markdown(PASSAGE_TEXT)
+        
+        if st.button("I've read it — let me write!", type="primary"):
+            st.session_state.phase = 'write'
+            st.rerun()
+    
+    # Write phase
+    elif st.session_state.phase == 'write':
+        st.markdown("## Step 2: Write Your Response")
+        
+        with st.expander("📖 View passage again"):
+            st.markdown(PASSAGE_TEXT)
+        
+        st.markdown(WRITING_PROMPT)
 
-    if st.button("🔄 Start a New Session", use_container_width=True):
-        reset_session()
+        st.markdown("")
+        st.markdown("💡 *Tip: Don't overthink it — write your honest first draft. We'll work on improving it together.*")
+        
+        essay = st.text_area(
+            "Your response:",
+            value=st.session_state.draft_text,
+            height=200,
+            placeholder="Write your response here..."
+        )
+        st.session_state.draft_text = essay
+
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if st.button("🔍 Check my draft first", type="secondary") and essay.strip():
+                with st.spinner("Checking your draft..."):
+                    result = engine.validator.validate(essay.strip())
+                    st.session_state.validation_result = result
+                    st.session_state.phase = 'validate'
+                    st.rerun()
+        
+        with col2:
+            if st.button("Submit for feedback", type="primary") and essay.strip():
+                result = engine.process_initial_essay(essay)
+                st.session_state.phase = result['phase']
+                st.session_state.messages.append({
+                    'type': 'scores',
+                    'scores': result['scores']
+                })
+                st.session_state.messages.append({
+                    'type': 'essay',
+                    'content': essay
+                })
+                st.session_state.messages.append({
+                    'type': 'coaching',
+                    'content': result['message']
+                })
+                st.rerun()
+    
+    # Pre-submission validation phase
+    elif st.session_state.phase == 'validate':
+        st.markdown("## 🔍 Draft Pre-Check")
+        st.markdown("Here's how your draft looks before formal scoring:")
+        
+        result = st.session_state.validation_result
+        if result:
+            word_count = result.get('word_count', 0)
+            overall_ready = result.get('overall_ready', False)
+            checks = result.get('checks', [])
+            summary = result.get('summary', '')
+            
+            # Status banner
+            if overall_ready:
+                st.success(f"✅ **Ready to submit** — {word_count} words")
+            else:
+                st.warning(f"⚠️ **Consider revising before submitting** — {word_count} words")
+            
+            if summary:
+                st.markdown(f"*{summary}*")
+            
+            st.markdown("")
+            
+            # Show each objective as a status row
+            status_config = {
+                "present": ("✅", "Good", "#d1fae5"),
+                "weak": ("⚠️", "Needs work", "#fef3c7"),
+                "missing": ("❌", "Missing", "#fee2e2")
+            }
+            
+            for check in checks:
+                status = check.get("status", "missing")
+                emoji, label, bg = status_config.get(status, ("❓", "Unknown", "#f3f4f6"))
+                obj = check.get("objective", "")
+                tip = check.get("tip", "")
+                
+                st.markdown(f"{emoji} **{obj}** — {label}")
+                if tip:
+                    st.markdown(f"   *💡 {tip}*")
+            
+            st.markdown("---")
+            
+            # Action buttons
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                if st.button("✏️ Go back and revise", type="primary"):
+                    st.session_state.phase = 'write'
+                    st.session_state.validation_result = None
+                    st.rerun()
+            
+            with col2:
+                submit_label = "✅ Submit for scoring" if overall_ready else "⚠️ Submit anyway"
+                if st.button(submit_label, type="secondary"):
+                    essay = st.session_state.draft_text
+                    result = engine.process_initial_essay(essay)
+                    st.session_state.phase = result['phase']
+                    st.session_state.messages.append({
+                        'type': 'scores',
+                        'scores': result['scores']
+                    })
+                    st.session_state.messages.append({
+                        'type': 'essay',
+                        'content': essay
+                    })
+                    st.session_state.messages.append({
+                        'type': 'coaching',
+                        'content': result['message']
+                    })
+                    st.rerun()
+            
+            if not overall_ready:
+                missing_count = sum(1 for c in checks if c.get("status") == "missing")
+                if missing_count >= 3:
+                    st.info("💡 **Tip:** Your draft is missing several key elements. Going back to add them will give you a stronger starting point for coaching.")
+        else:
+            st.error("No validation results. Going back to writing.")
+            st.session_state.phase = 'write'
+            st.rerun()
+    
+    # Coaching phase
+    elif st.session_state.phase == 'coach':
+        st.markdown("## Step 3: Coaching Session")
+        st.info("Read my feedback below, then revise your response. We'll keep working until all dimensions hit the target.")
+        
+        # Show current scores
+        if st.session_state.messages:
+            for msg in st.session_state.messages:
+                if msg['type'] == 'scores':
+                    st.markdown("### Your Scores")
+                    render_scores(msg['scores'])
+        
+        # Show conversation history
+        st.markdown("---")
+        for msg in st.session_state.messages:
+            if msg['type'] == 'essay':
+                st.markdown(f"> {msg['content']}")
+            elif msg['type'] == 'coaching':
+                st.markdown(msg['content'])
+        
+        st.markdown("---")
+        st.markdown("**Revise your response based on the coaching above:**")
+        
+        with st.expander("📖 View passage"):
+            st.markdown(PASSAGE_TEXT)
+        
+        revision = st.text_area(
+            "Your revised response:",
+            height=200,
+            placeholder="Write your revision here..."
+        )
+        
+        if st.button("Submit revision", type="primary") and revision.strip():
+            result = engine.process_revision(revision)
+            st.session_state.phase = result['phase']
+            st.session_state.messages.append({
+                'type': 'scores',
+                'scores': result.get('scores', engine.memory.get_latest_scores())
+            })
+            st.session_state.messages.append({
+                'type': 'essay',
+                'content': revision
+            })
+            st.session_state.messages.append({
+                'type': 'coaching',
+                'content': result['message']
+            })
+            st.rerun()
+    
+    # Reflection phase
+    elif st.session_state.phase == 'reflect':
+        st.markdown("## Step 4: Reflection")
+        st.info("Let's take a moment to think about what you learned during this session.")
+        
+        # Show score progress
+        if engine.memory.get_revision_count() > 0:
+            st.markdown("### Score Progress")
+            first_scores = engine.memory.scores_history[0]
+            final_scores = engine.memory.get_latest_scores()
+            
+            for dim in DIMENSION_ORDER:
+                first = first_scores[dim]['score']
+                final = final_scores[dim]['score']
+                name = VALUE_RUBRIC[dim]['name']
+                
+                if final > first:
+                    st.markdown(f"**{name}:** {first} → {final} ⬆️")
+                else:
+                    st.markdown(f"**{name}:** {first} → {final} ➡️")
+        
+        # Show conversation
+        st.markdown("---")
+        for msg in st.session_state.messages:
+            if msg['type'] == 'essay':
+                st.markdown(f"> {msg['content']}")
+            elif msg['type'] == 'coaching':
+                st.markdown(msg['content'])
+        
+        # Reflection questions
+        st.markdown("---")
+        
+        # Get current reflection question
+        reflection_turn = engine.memory.reflection_turn
+        if reflection_turn < len(engine.memory.reflection_responses):
+            # Show previous responses
+            from passage_config import REFLECTION_PROMPTS
+            for i, resp in enumerate(engine.memory.reflection_responses):
+                st.markdown(f"**{REFLECTION_PROMPTS[i]['question']}**")
+                st.markdown(f"> {resp}")
+        
+        # Show current question or prompt for response
+        from passage_config import REFLECTION_PROMPTS
+        if reflection_turn < len(REFLECTION_PROMPTS):
+            current_q = REFLECTION_PROMPTS[reflection_turn]['question']
+            st.markdown(f"### {current_q}")
+            
+            reflection = st.text_area(
+                "Your response:",
+                height=100,
+                placeholder="Take a moment to reflect...",
+                key=f"reflection_{reflection_turn}"
+            )
+            
+            if st.button("Submit", type="primary") and reflection.strip():
+                result = engine.process_reflection(reflection)
+                st.session_state.phase = result['phase']
+                st.session_state.messages.append({
+                    'type': 'coaching',
+                    'content': result['message']
+                })
+                st.rerun()
+    
+    # Complete phase
+    elif st.session_state.phase == 'complete':
+        st.markdown("## 🎉 Session Complete!")
+        
+        # Show final message
+        for msg in st.session_state.messages[-3:]:
+            if msg['type'] == 'coaching':
+                st.markdown(msg['content'])
+        
+        # Show stats
+        stats = engine.get_session_stats()
+        st.markdown("---")
+        st.markdown("### Session Stats:")
+        st.markdown(f"- **Revisions:** {stats['revisions']}")
+        st.markdown(f"- **Coaching turns:** {stats['coaching_turns']}")
+        st.markdown(f"- **Essay versions:** {stats['essay_versions']}")
+        
+        if st.button("Start a new session", type="primary"):
+            # Reset everything
+            st.session_state.engine = SocraticEngine()
+            st.session_state.phase = 'read'
+            st.session_state.messages = []
+            st.session_state.validation_result = None
+            st.session_state.draft_text = ""
+            st.rerun()
+
+
+if __name__ == "__main__":
+    main()
