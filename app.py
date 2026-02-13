@@ -113,6 +113,19 @@ def main():
 
 📝 **Submit for Feedback** — Your formal submission. This scores your writing on 5 dimensions and starts a Socratic coaching session where I'll ask you questions to help you improve. You can still revise after submitting.
 """)
+
+        # Show previous pre-check notes if they exist
+        if st.session_state.validation_result:
+            prev_result = st.session_state.validation_result
+            needs_work = [c for c in prev_result.get('checks', []) if c.get('status') in ('weak', 'missing')]
+            if needs_work:
+                with st.expander("📋 Notes from your last draft check", expanded=True):
+                    for check in needs_work:
+                        status = check.get("status", "missing")
+                        emoji = "⚠️" if status == "weak" else "❌"
+                        obj = check.get("objective", "")
+                        tip = check.get("tip", "")
+                        st.markdown(f"{emoji} **{obj}**: {tip}")
         
         essay = st.text_area(
             "Your response:",
