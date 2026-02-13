@@ -102,15 +102,15 @@ class PreSubmissionValidator:
         has_position = any(p in lower for p in self.POSITION_WORDS)
         if has_position:
             pos_tip = {
-                "basic": "Good — you said what you think! That's the first step in a strong essay.",
+                "basic": "Good job — you told us what you think! That's exactly how to start. 👍",
                 "intermediate": "Nice work — your position comes through clearly and gives your essay direction.",
                 "advanced": "Strong opening stance — your position anchors the essay and signals your argument."
             }[level]
         else:
             pos_tip = {
-                "basic": "What do YOU think about this? Try starting with 'I think...' or 'I believe...' so your reader knows where you stand.",
-                "intermediate": "Strong essays start with a clear stance — it gives your reader (and your argument) a direction to follow.",
-                "advanced": "Your draft would benefit from an explicit thesis statement that frames your analytical approach."
+                "basic": "If someone asked you 'so what do YOU think about this?' — what would you say? Can you put that right at the beginning so your reader knows?",
+                "intermediate": "What's your actual opinion on this topic? If a friend asked you to pick a side, what would you say — and how could you open with that?",
+                "advanced": "What specific claim are you making? How might an explicit thesis statement frame and sharpen your analysis?"
             }[level]
         checks.append({"objective": "POSITION", "status": "present" if has_position else ("weak" if word_count > 20 else "missing"), "tip": pos_tip})
 
@@ -118,77 +118,77 @@ class PreSubmissionValidator:
         ev_status = "present" if len(found) >= 2 else ("weak" if len(found) == 1 else "missing")
         if ev_status == "present":
             ev_tip = {
-                "basic": "Awesome — you used real facts from the passage! That makes your writing way more convincing.",
-                "intermediate": "Great job pulling in specific details from the passage — that makes your argument much more convincing.",
+                "basic": "You used real facts from the passage — that makes your writing way more convincing! 🌟",
+                "intermediate": "Great job pulling in specific details from the passage — that makes your argument much harder to disagree with.",
                 "advanced": "Effective evidence integration — your use of passage details grounds the argument in textual support."
             }[level]
         elif ev_status == "weak":
             ev_tip = {
-                "basic": "You mentioned something from the passage — nice! Can you add one more fact, like a name or a number?",
-                "intermediate": "You've started using evidence — try adding one more specific detail like a date or statistic to make it stronger.",
-                "advanced": "You've referenced the passage — consider adding a second data point to strengthen your evidentiary base."
+                "basic": "You mentioned something from the passage — nice start! Was there anything else in there that surprised you or could help prove your point?",
+                "intermediate": "You've started using evidence — is there another detail from the passage (a date, a name, a statistic) that could make this even stronger?",
+                "advanced": "You've referenced the passage once — what additional evidence might strengthen or complicate your argument?"
             }[level]
         else:
             ev_tip = {
-                "basic": "Can you find a fact from the passage to put in your essay? Maybe a name, a year, or a number — that shows you really read it!",
-                "intermediate": "Specific facts from the passage (like dates, names, or statistics) are what separate opinion from argument. Try weaving one in!",
-                "advanced": "Your argument currently relies on assertion without textual support. Grounding claims in passage-specific evidence would significantly strengthen it."
+                "basic": "What's one thing from the passage that stuck with you? What if you told your reader about it — do you think it would help prove your point?",
+                "intermediate": "If someone disagreed with you, what fact from the passage could you point to that supports your side? How would that change your argument?",
+                "advanced": "Your argument rests on assertion alone — which passage details could serve as evidence? How might they anchor your claims?"
             }[level]
         checks.append({"objective": "EVIDENCE", "status": ev_status, "tip": ev_tip})
 
         has_reasoning = any(r in lower for r in self.REASONING_WORDS)
         if has_reasoning:
             reason_tip = {
-                "basic": "You explained WHY — that's great! Explaining your thinking is what makes your writing really strong.",
+                "basic": "You explained WHY you think that — great job! That's what makes your writing really strong. 💪",
                 "intermediate": "You're explaining your thinking — that's what turns facts into a real argument. Keep it up!",
                 "advanced": "Your analytical reasoning connects evidence to claims effectively."
             }[level]
         else:
             reason_tip = {
-                "basic": "You said what you think — now tell me WHY! Try using the word 'because' to explain your reason.",
-                "intermediate": "Evidence alone doesn't argue for you — your reader needs to hear WHY it matters. Try explaining what your evidence proves.",
-                "advanced": "Your draft would benefit from explicit analytical reasoning connecting your evidence to your thesis."
+                "basic": "You told us what you think — but WHY do you think that? If a friend asked 'how come?' what would you tell them?",
+                "intermediate": "You've stated your position — but why should your reader believe you? What's the reasoning behind your opinion?",
+                "advanced": "What logical connection links your evidence to your thesis? How does your reasoning move beyond assertion to analysis?"
             }[level]
         checks.append({"objective": "REASONING", "status": "present" if has_reasoning else ("weak" if word_count > 30 else "missing"), "tip": reason_tip})
 
         if len(sentences) >= 4:
             struct_tip = {
-                "basic": "You wrote several sentences — that makes it easy to follow your ideas!",
+                "basic": "You wrote several sentences and that makes it easy to follow your ideas! Nice work! 📝",
                 "intermediate": "Your ideas flow across multiple sentences — that helps your reader follow your thinking step by step.",
                 "advanced": "Solid structural development — multiple ideas are clearly articulated."
             }[level]
         elif len(sentences) >= 2:
             struct_tip = {
-                "basic": "You've got a couple of sentences going — can you add a few more? Tell me more about what you think!",
-                "intermediate": "You've got a couple of ideas going — try developing them into a few more sentences so your reader can follow along.",
-                "advanced": "Consider expanding your argument across additional sentences to fully develop your analytical points."
+                "basic": "You've got a couple of ideas started — what else could you say? Is there more you want your reader to know?",
+                "intermediate": "You've got a couple of ideas going — what else would help your reader fully understand your argument?",
+                "advanced": "How might you expand your argument to more fully develop each analytical point?"
             }[level]
         else:
             struct_tip = {
-                "basic": "Right now it's pretty short — can you write a few more sentences? I'd love to hear more of your thinking!",
-                "intermediate": "Right now your draft is very short. Developing your ideas across several sentences helps your reader follow your thinking.",
-                "advanced": "Your draft needs further development — expand across multiple sentences to build a sustained argument."
+                "basic": "This is a good start but pretty short — what else do you want to say about this topic? I bet you have more ideas in there!",
+                "intermediate": "Your draft is quite short — what other thoughts do you have? What else would help your reader understand your full position?",
+                "advanced": "How might you develop this into a sustained argument? What additional points could support your thesis?"
             }[level]
         checks.append({"objective": "STRUCTURE", "status": "present" if len(sentences) >= 4 else ("weak" if len(sentences) >= 2 else "missing"), "tip": struct_tip})
 
         has_casual = any(c in lower for c in self.CASUAL_MARKERS)
         if has_casual:
             tone_tip = {
-                "basic": "I can tell you feel strongly! Now try saying it the way you would if you were explaining it to your teacher instead of your friend.",
-                "intermediate": "Your passion is great — now try channeling it into academic language. Phrases like 'I believe' or 'the evidence suggests' show you're thinking carefully.",
-                "advanced": "Some informal register is present — shifting to academic discourse conventions would strengthen the essay's authority."
+                "basic": "I can tell you have strong feelings! If you were explaining this to your teacher instead of your friend, how would you say it differently?",
+                "intermediate": "Your passion comes through — how might you express those same strong feelings using language that sounds more like an essay?",
+                "advanced": "How might you convey the same conviction using academic register? Where does informal language undercut your argument's authority?"
             }[level]
         elif word_count > 15:
             tone_tip = {
-                "basic": "Your writing sounds really thoughtful — nice job using your school voice!",
+                "basic": "Your writing sounds really thoughtful — nice job using your school voice! 👍",
                 "intermediate": "Your writing sounds thoughtful and academic — exactly the right tone for this kind of essay.",
                 "advanced": "Your academic register is well-calibrated for analytical writing."
             }[level]
         else:
             tone_tip = {
-                "basic": "As you write more, try using your 'school voice' — the way you'd talk to your teacher.",
-                "intermediate": "As you expand your draft, aim for language that sounds like an essay rather than a text message.",
-                "advanced": "As you develop the draft, maintain formal academic register throughout."
+                "basic": "As you write more, think about this: how would you say this if you were presenting it to your class?",
+                "intermediate": "As you expand your draft, how can you make sure it sounds like a polished essay rather than a quick message?",
+                "advanced": "As you develop the draft, how will you maintain formal academic register throughout?"
             }[level]
         checks.append({"objective": "TONE", "status": "missing" if has_casual else ("present" if word_count > 15 else "weak"), "tip": tone_tip})
 
