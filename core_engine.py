@@ -114,42 +114,67 @@ class PreSubmissionValidator:
             }[level]
         checks.append({"objective": "POSITION", "status": "present" if has_position else ("weak" if word_count > 20 else "missing"), "tip": pos_tip})
 
+        # Evidence: check presence AND whether it's integrated or just name-dropped
         found = [m for m in self.EVIDENCE_MARKERS if m in lower]
-        ev_status = "present" if len(found) >= 2 else ("weak" if len(found) == 1 else "missing")
+        has_explanation_near_evidence = any(
+            r in lower for r in ["this shows", "this means", "which proves", "this is because", "this demonstrates", "for example"]
+        )
+        if len(found) >= 2 and has_explanation_near_evidence:
+            ev_status = "present"
+        elif len(found) >= 1:
+            ev_status = "weak"  # Found evidence but not well integrated
+        else:
+            ev_status = "missing"
+        
         if ev_status == "present":
             ev_tip = {
-                "basic": "You used real facts from the passage — that makes your writing way more convincing! 🌟",
-                "intermediate": "Great job pulling in specific details from the passage — that makes your argument much harder to disagree with.",
-                "advanced": "Effective evidence integration — your use of passage details grounds the argument in textual support."
+                "basic": "You used facts from the passage AND explained why they matter — that's really strong! 🌟",
+                "intermediate": "Great job — you're not just dropping facts, you're connecting them to your argument.",
+                "advanced": "Effective evidence integration — your passage details are well-connected to your analytical claims."
             }[level]
         elif ev_status == "weak":
             ev_tip = {
-                "basic": "You mentioned something from the passage — nice start! Was there anything else in there that surprised you or could help prove your point?",
-                "intermediate": "You've started using evidence — is there another detail from the passage (a date, a name, a statistic) that could make this even stronger?",
-                "advanced": "You've referenced the passage once — what additional evidence might strengthen or complicate your argument?"
+                "basic": "You mentioned facts from the passage — nice start! But why did you pick those facts? How do they help prove YOUR point?",
+                "intermediate": "You've got evidence in there, but how does each fact actually connect to your argument? Why do these details matter?",
+                "advanced": "Evidence is present but not fully integrated. How might you explicitly connect each detail to your thesis?"
             }[level]
         else:
             ev_tip = {
                 "basic": "What's one thing from the passage that stuck with you? What if you told your reader about it — do you think it would help prove your point?",
-                "intermediate": "If someone disagreed with you, what fact from the passage could you point to that supports your side? How would that change your argument?",
-                "advanced": "Your argument rests on assertion alone — which passage details could serve as evidence? How might they anchor your claims?"
+                "intermediate": "If someone disagreed with you, what fact from the passage could you point to that supports your side?",
+                "advanced": "Your argument rests on assertion alone — which passage details could serve as evidence?"
             }[level]
         checks.append({"objective": "EVIDENCE", "status": ev_status, "tip": ev_tip})
 
+        # Reasoning: check for real reasoning, not circular logic
         has_reasoning = any(r in lower for r in self.REASONING_WORDS)
-        if has_reasoning:
+        circular_patterns = ["because it's gross", "because its gross", "because i don't like", "because i dont like",
+                           "because it's bad", "because its bad", "because it's weird", "because its weird",
+                           "because it's dumb", "because its dumb"]
+        is_circular = any(c in lower for c in circular_patterns)
+        
+        if has_reasoning and not is_circular:
+            reason_status = "present"
             reason_tip = {
-                "basic": "You explained WHY you think that — great job! That's what makes your writing really strong. 💪",
-                "intermediate": "You're explaining your thinking — that's what turns facts into a real argument. Keep it up!",
-                "advanced": "Your analytical reasoning connects evidence to claims effectively."
+                "basic": "You explained WHY with a real reason — not just 'because I said so.' That's strong thinking! 💪",
+                "intermediate": "You're explaining your thinking with real logic — that's what makes an argument convincing.",
+                "advanced": "Your analytical reasoning effectively connects evidence to claims."
+            }[level]
+        elif has_reasoning and is_circular:
+            reason_status = "weak"
+            reason_tip = {
+                "basic": "You used 'because' — good! But saying 'because it's gross' just repeats your opinion. Can you dig deeper — WHY doesn't it work? What specifically happens?",
+                "intermediate": "Your reasoning restates your opinion rather than explaining it. What's the deeper logic — why SPECIFICALLY does your position make sense?",
+                "advanced": "Your reasoning is circular — it restates rather than supports your claim. What underlying logic connects your evidence to your conclusion?"
             }[level]
         else:
+            reason_status = "weak" if word_count > 30 else "missing"
             reason_tip = {
                 "basic": "You told us what you think — but WHY do you think that? If a friend asked 'how come?' what would you tell them?",
                 "intermediate": "You've stated your position — but why should your reader believe you? What's the reasoning behind your opinion?",
                 "advanced": "What logical connection links your evidence to your thesis? How does your reasoning move beyond assertion to analysis?"
             }[level]
-        checks.append({"objective": "REASONING", "status": "present" if has_reasoning else ("weak" if word_count > 30 else "missing"), "tip": reason_tip})
+        checks.append({"objective": "REASONING", "status": reason_status, "tip": reason_tip})
 
         if len(sentences) >= 4:
             struct_tip = {
@@ -172,25 +197,42 @@ class PreSubmissionValidator:
         checks.append({"objective": "STRUCTURE", "status": "present" if len(sentences) >= 4 else ("weak" if len(sentences) >= 2 else "missing"), "tip": struct_tip})
 
         has_casual = any(c in lower for c in self.CASUAL_MARKERS)
+        # Check for basic mechanics issues (missing apostrophes, common misspellings)
+        mechanics_issues = []
+        if "dont " in lower or "doesnt " in lower or "wasnt " in lower or "isnt " in lower or "thats " in lower or "im " in lower or "wont " in lower or "cant " in lower or "didnt " in lower:
+            mechanics_issues.append("apostrophes")
+        if any(w in lower for w in ["alot", "becuz", "cuz", "ur", "u ", "2 ", "4 "]):
+            mechanics_issues.append("spelling")
+        
         if has_casual:
+            tone_status = "missing"
             tone_tip = {
                 "basic": "I can tell you have strong feelings! If you were explaining this to your teacher instead of your friend, how would you say it differently?",
                 "intermediate": "Your passion comes through — how might you express those same strong feelings using language that sounds more like an essay?",
                 "advanced": "How might you convey the same conviction using academic register? Where does informal language undercut your argument's authority?"
             }[level]
+        elif mechanics_issues:
+            tone_status = "weak"
+            tone_tip = {
+                "basic": "Your ideas are good! Can you read through it one more time and check for things like missing apostrophes (dont → don't) and spelling? Those little things matter!",
+                "intermediate": "Your tone is heading in the right direction, but there are some mechanics to clean up — missing apostrophes, spelling. How might a final proofread strengthen this?",
+                "advanced": "Your register is appropriate but mechanical errors (missing apostrophes, spelling) undermine the professionalism. Where might a careful proofread tighten this up?"
+            }[level]
         elif word_count > 15:
+            tone_status = "present"
             tone_tip = {
                 "basic": "Your writing sounds really thoughtful — nice job using your school voice! 👍",
                 "intermediate": "Your writing sounds thoughtful and academic — exactly the right tone for this kind of essay.",
                 "advanced": "Your academic register is well-calibrated for analytical writing."
             }[level]
         else:
+            tone_status = "weak"
             tone_tip = {
                 "basic": "As you write more, think about this: how would you say this if you were presenting it to your class?",
                 "intermediate": "As you expand your draft, how can you make sure it sounds like a polished essay rather than a quick message?",
                 "advanced": "As you develop the draft, how will you maintain formal academic register throughout?"
             }[level]
-        checks.append({"objective": "TONE", "status": "missing" if has_casual else ("present" if word_count > 15 else "weak"), "tip": tone_tip})
+        checks.append({"objective": "TONE", "status": tone_status, "tip": tone_tip})
 
         present_count = sum(1 for c in checks if c["status"] in ("present", "weak"))
         overall_ready = present_count >= 3 and word_count >= 10

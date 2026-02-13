@@ -153,14 +153,14 @@ PASSAGE THE STUDENT READ:
 WRITING PROMPT:
 {writing_prompt}
 
-Check the draft against these 5 objectives. For each, return a status and friendly, specific feedback.
+Check the draft against these 5 objectives. For each, return an HONEST status and friendly, specific feedback.
 
 OBJECTIVES:
-1. POSITION: Does the draft take a clear stance? (Not just summarizing or asking questions)
-2. EVIDENCE: Does it reference ANY specific details from the passage? (Names, dates, statistics)
-3. REASONING: Does it attempt to explain WHY? (Any "because" or "this means" language)
-4. STRUCTURE: Is there more than one idea or paragraph? (Not a single sentence)
-5. TONE: Does it use academic language rather than texting, slang, or speech-style?
+1. POSITION: Does the draft take a clear, arguable stance? (Not just "I don't like it" — does it make a claim someone could disagree with?)
+2. EVIDENCE: Does it reference specific details from the passage AND integrate them meaningfully? (Just dropping a name isn't enough — it should connect to the argument. Quality matters, not just presence.)
+3. REASONING: Does it explain WHY with logical depth? (Not just "because it's gross" — does it actually build an argument? Circular reasoning like "it's bad because I don't like it" is weak, not present.)
+4. STRUCTURE: Are ideas organized logically? (Not just multiple sentences — are related ideas grouped? Is there any paragraph structure or flow?)
+5. TONE: Does it use academic language with proper mechanics? (Check for: slang, missing apostrophes, misspellings, run-on sentences, texting-style. Writing that reads like speech or a text message should be "weak" or "missing" even if the ideas are good.)
 
 Return ONLY valid JSON:
 {{
@@ -206,7 +206,10 @@ RULES:
   - GOOD for advanced: "Where might textual evidence anchor your claim? Which passage details most directly complicate or support your thesis?"
 - When status is "present": praise specifically what they did well. Be warm and specific.
 - When status is "weak" or "missing": ask a Socratic question that helps them realize what's missing and why it matters. Let THEM figure out the next step.
-- "present" = clearly there. "weak" = attempted but needs work. "missing" = not attempted.
+- "present" = clearly there AND done well. Don't give "present" just because something exists — it has to actually work.
+- "weak" = attempted but needs real improvement. This is the honest middle ground — use it freely.
+- "missing" = not attempted or so poorly done it doesn't count.
+- BE HONEST. Being encouraging does NOT mean pretending everything is good. A student who writes with misspellings, no paragraphs, and "thats weird" as reasoning has WEAK work, not GOOD work. You help them more by being truthful than by cheerleading.
 - overall_ready = true if at least 3 of 5 are "present" or "weak" (not missing).
 - Keep tips under 35 words. Be specific to their actual draft.
 - If draft is very short (< 2 sentences), overall_ready = false.
