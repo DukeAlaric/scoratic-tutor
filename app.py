@@ -274,22 +274,23 @@ At the end, you'll answer a few short questions about your experience. This isn'
         
         with col2:
             if st.button("📝 Submit for feedback", type="primary", use_container_width=True) and essay.strip():
-                st.session_state.draft_text = essay.strip()
-                result = engine.process_initial_essay(essay)
-                st.session_state.phase = result['phase']
-                st.session_state.messages.append({
-                    'type': 'scores',
-                    'scores': result['scores']
-                })
-                st.session_state.messages.append({
-                    'type': 'essay',
-                    'content': essay
-                })
-                st.session_state.messages.append({
-                    'type': 'coaching',
-                    'content': result['message']
-                })
-                log_phase_transition(result['phase'], engine, {"action": "initial_submit"})
+                with st.spinner("📝 Scoring your essay and preparing coaching feedback..."):
+                    st.session_state.draft_text = essay.strip()
+                    result = engine.process_initial_essay(essay)
+                    st.session_state.phase = result['phase']
+                    st.session_state.messages.append({
+                        'type': 'scores',
+                        'scores': result['scores']
+                    })
+                    st.session_state.messages.append({
+                        'type': 'essay',
+                        'content': essay
+                    })
+                    st.session_state.messages.append({
+                        'type': 'coaching',
+                        'content': result['message']
+                    })
+                    log_phase_transition(result['phase'], engine, {"action": "initial_submit"})
                 st.rerun()
     
     # Pre-submission validation phase
@@ -411,22 +412,23 @@ Ready for formal scoring and Socratic coaching
                 """, unsafe_allow_html=True)
                 submit_label = "✅ Submit for scoring" if overall_ready else "⚠️ Submit anyway"
                 if st.button(submit_label, type="primary", use_container_width=True):
-                    essay = st.session_state.draft_text
-                    result = engine.process_initial_essay(essay)
-                    st.session_state.phase = result['phase']
-                    st.session_state.messages.append({
-                        'type': 'scores',
-                        'scores': result['scores']
-                    })
-                    st.session_state.messages.append({
-                        'type': 'essay',
-                        'content': essay
-                    })
-                    st.session_state.messages.append({
-                        'type': 'coaching',
-                        'content': result['message']
-                    })
-                    log_phase_transition(result['phase'], engine, {"action": "initial_submit"})
+                    with st.spinner("📝 Scoring your essay and preparing coaching feedback..."):
+                        essay = st.session_state.draft_text
+                        result = engine.process_initial_essay(essay)
+                        st.session_state.phase = result['phase']
+                        st.session_state.messages.append({
+                            'type': 'scores',
+                            'scores': result['scores']
+                        })
+                        st.session_state.messages.append({
+                            'type': 'essay',
+                            'content': essay
+                        })
+                        st.session_state.messages.append({
+                            'type': 'coaching',
+                            'content': result['message']
+                        })
+                        log_phase_transition(result['phase'], engine, {"action": "initial_submit"})
                     st.rerun()
         else:
             st.error("No validation results. Going back to writing.")
@@ -494,35 +496,42 @@ Ready for formal scoring and Socratic coaching
             st.markdown(latest['coaching'])
         
         st.markdown("---")
-        st.markdown("**Revise your response based on the coaching above:**")
+        
+        st.markdown("""
+<div style="font-size: 1.15rem; font-weight: 600; margin-bottom: 8px;">
+✏️ Revise your draft here based on the coaching above:
+</div>
+        """, unsafe_allow_html=True)
         
         with st.expander("📖 View passage"):
             st.markdown(PASSAGE_TEXT)
         
         revision = st.text_area(
-            "Your revised response:",
+            "Your revised draft:",
             value=st.session_state.draft_text,
             height=200,
-            placeholder="Write your revision here..."
+            placeholder="Edit your draft here...",
+            label_visibility="collapsed"
         )
         
         if st.button("Submit revision", type="primary", use_container_width=True) and revision.strip():
-            st.session_state.draft_text = revision.strip()
-            result = engine.process_revision(revision)
-            st.session_state.phase = result['phase']
-            st.session_state.messages.append({
-                'type': 'scores',
-                'scores': result.get('scores', engine.memory.get_latest_scores())
-            })
-            st.session_state.messages.append({
-                'type': 'essay',
-                'content': revision
-            })
-            st.session_state.messages.append({
-                'type': 'coaching',
-                'content': result['message']
-            })
-            log_phase_transition(result['phase'], engine, {"action": "revision", "revision_num": engine.memory.get_revision_count()})
+            with st.spinner("📝 Scoring your revision and preparing coaching feedback..."):
+                st.session_state.draft_text = revision.strip()
+                result = engine.process_revision(revision)
+                st.session_state.phase = result['phase']
+                st.session_state.messages.append({
+                    'type': 'scores',
+                    'scores': result.get('scores', engine.memory.get_latest_scores())
+                })
+                st.session_state.messages.append({
+                    'type': 'essay',
+                    'content': revision
+                })
+                st.session_state.messages.append({
+                    'type': 'coaching',
+                    'content': result['message']
+                })
+                log_phase_transition(result['phase'], engine, {"action": "revision", "revision_num": engine.memory.get_revision_count()})
             st.rerun()
     
     # Reflection phase
@@ -531,13 +540,14 @@ Ready for formal scoring and Socratic coaching
         
         st.markdown("""
 <div style="font-size: 1.1rem; line-height: 1.6; background: #f0f4ff; padding: 16px 20px; border-radius: 10px; margin-bottom: 16px;">
-<strong>Why this step matters:</strong> Research shows that reflection is one of the most powerful ways to turn a single experience into lasting learning. By thinking about what was hard, what clicked, and how you'd approach things differently, you're building skills you can use in <em>any</em> writing situation — not just this one.
+<strong>Almost done! Just a few quick questions.</strong><br/>
+We want to hear about YOUR experience — what worked, what didn't, and what could be better. Your answers help us understand how this tool actually feels to use, not just whether it "works" on paper.
 </div>
         """, unsafe_allow_html=True)
         
         st.markdown("""
 <div style="font-size: 0.95rem; line-height: 1.5; background: #fef3c7; padding: 12px 16px; border-radius: 8px; margin-bottom: 16px;">
-📊 <strong>A note about research:</strong> Your reflections are part of a dissertation study on how AI-guided tutoring can improve writing. Your honest responses — what worked, what didn't, what was frustrating — are incredibly valuable for understanding how to make this tool better. There are no wrong answers here. Just be real.
+📊 <strong>A note about research:</strong> These reflections are part of a dissertation study on AI-guided writing instruction. Your honest feedback — including anything that was confusing or frustrating — is the most valuable data we can get. There are no wrong answers and no grades here. Just tell us what it was really like.
 </div>
         """, unsafe_allow_html=True)
         
@@ -591,13 +601,14 @@ Ready for formal scoring and Socratic coaching
             )
             
             if st.button("Submit", type="primary", use_container_width=True) and reflection.strip():
-                result = engine.process_reflection(reflection)
-                st.session_state.phase = result['phase']
-                st.session_state.messages.append({
-                    'type': 'coaching',
-                    'content': result['message']
-                })
-                log_phase_transition(result['phase'], engine, {"action": "reflection", "reflection_turn": engine.memory.reflection_turn})
+                with st.spinner("🪞 Processing your reflection..."):
+                    result = engine.process_reflection(reflection)
+                    st.session_state.phase = result['phase']
+                    st.session_state.messages.append({
+                        'type': 'coaching',
+                        'content': result['message']
+                    })
+                    log_phase_transition(result['phase'], engine, {"action": "reflection", "reflection_turn": engine.memory.reflection_turn})
                 st.rerun()
     
     # Complete phase
