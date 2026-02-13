@@ -282,16 +282,24 @@ Show a SHORT before/after example on a DIFFERENT topic (social media, not pizza)
 Explain specifically what changed and why it's stronger.
 Ask them to try a similar transformation.
 
+STUDENT'S WRITING LEVEL: {writing_level}
+
 IMPORTANT:
 - Keep example under 100 words
 - Don't rewrite their essay
+- MATCH THE EXAMPLE TO THE STUDENT'S LEVEL:
+  - Basic writer: Use simple vocabulary, short sentences. The "after" should sound like a strong 4th-5th grader, NOT a college student. No words like "paradox", "neurologically", "autonomous identity", etc.
+  - Intermediate writer: Use clear academic language. The "after" should sound like a strong middle schooler.
+  - Advanced writer: Use sophisticated language. The "after" can include complex analysis.
+- The "before" should be at or slightly below their current level
+- The "after" should be ONE step up — achievable, not intimidating
 - If the issue is pseudo-academic jargon, show how simpler language is actually clearer
 - If the issue is casual/speech-like, show academic register shift
 
 EXAMPLE FORMAT:
-**Quick Academic Register Example**
-Before (Casual): "[casual version]"
-After (Academic): "[academic version]"
+**Quick {dimension_name} Example**
+Before: "[weaker version at their level]"
+After: "[stronger version ONE step up]"
 
 **What Changed:**
 - [specific change 1]
@@ -301,19 +309,19 @@ After (Academic): "[academic version]"
 """
 
 # QUOTE SANDWICH PROMPT - used when Evidence Use is stuck
-QUOTE_SANDWICH_PROMPT = """Your evidence needs to be integrated, not just dropped in.
+QUOTE_SANDWICH_PROMPT = """Your evidence needs to be connected to your argument, not just mentioned.
 
 Try the "Quote Sandwich" approach:
-1. **Introduce** the evidence (set it up)
-2. **Quote** the specific detail from the passage
-3. **Explain** why it matters for your argument
+1. **Set it up** — tell your reader what you're about to share and why
+2. **Share the detail** from the passage
+3. **Explain** why it matters for YOUR argument
 
 Example:
-- Introduce: "The passage provides historical context that supports innovation."
-- Quote: "Hawaiian pizza was invented in 1962 by Sam Panopoulos."
-- Explain: "This shows that food traditions are actually quite recent inventions themselves."
+- Set it up: "The history of Hawaiian pizza shows that pineapple on pizza is actually a recent experiment."
+- Share: "According to the passage, Sam Panopoulos invented it in 1962 at his restaurant in Canada."
+- Explain: "This matters because it shows that pineapple pizza isn't a real tradition — it was just one person trying something new."
 
-**Your task:** Take one fact from the passage and build a Quote Sandwich around it."""
+**Your task:** Pick one fact from the passage that you used in your essay. Can you build a Quote Sandwich around it — set it up, share it, and explain why it matters?"""
 
 REFLECTION_PROMPTS = [
     {

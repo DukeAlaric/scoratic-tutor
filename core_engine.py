@@ -532,9 +532,10 @@ class SocraticEngine:
     def generate_model_example(self, dimension: str) -> str:
         """Generate before/after example when student is stuck."""
         system = MODEL_EXAMPLE_PROMPT.format(
-            dimension_name=VALUE_RUBRIC[dimension]['name']
+            dimension_name=VALUE_RUBRIC[dimension]['name'],
+            writing_level=self.memory.writing_level
         )
-        user_msg = f"Create a brief before/after example showing how to improve {VALUE_RUBRIC[dimension]['name']}."
+        user_msg = f"Create a brief before/after example showing how to improve {VALUE_RUBRIC[dimension]['name']}. The student writes at a {self.memory.writing_level} level."
         return call_claude(system, user_msg, max_tokens=350)
     
     def generate_first_try_analysis(self, essay: str) -> str:

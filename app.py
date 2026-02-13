@@ -367,6 +367,21 @@ At the end, you'll answer a few short questions about your experience. This isn'
             
             st.markdown("---")
             
+            # Progress celebration and handoff message
+            if overall_ready:
+                st.markdown("""
+<div style="font-size: 1.2rem; font-weight: 700; text-align: center; background: #d1fae5; padding: 16px 20px; border-radius: 10px; margin: 12px 0; line-height: 1.6;">
+🎉 Look how far you've come! Your draft has grown into a real argument with evidence and structure. Nice work!<br/>
+<span style="font-size: 1.05rem; font-weight: 400;">When you're ready, the Socratic Coach will help you take it to the next level — refining your reasoning, sharpening your language, and making your writing even stronger.</span>
+</div>
+                """, unsafe_allow_html=True)
+            else:
+                st.markdown("""
+<div style="font-size: 1.1rem; font-weight: 600; text-align: center; background: #fef3c7; padding: 14px 20px; border-radius: 10px; margin: 12px 0; line-height: 1.6;">
+📈 You're making progress! Keep working on the areas above, or submit and let the Socratic Coach help you from here.
+</div>
+                """, unsafe_allow_html=True)
+            
             # Choice framing
             st.markdown("""
 <div style="font-size: 1.15rem; font-weight: 600; text-align: center; margin: 12px 0;">
@@ -423,20 +438,61 @@ Ready for formal scoring and Socratic coaching
         st.markdown("## Step 3: Coaching Session")
         st.info("Read my feedback below, then revise your response. We'll keep working until all dimensions hit the target.")
         
-        # Show current scores
-        if st.session_state.messages:
-            for msg in st.session_state.messages:
-                if msg['type'] == 'scores':
-                    st.markdown("### Your Scores")
-                    render_scores(msg['scores'])
+        # Show ONLY the most recent scores
+        latest_scores = None
+        prev_scores = None
+        for msg in st.session_state.messages:
+            if msg['type'] == 'scores':
+                prev_scores = latest_scores
+                latest_scores = msg['scores']
         
-        # Show conversation history
+        if latest_scores:
+            st.markdown("### Your Scores")
+            render_scores(latest_scores)
+            
+            # Show improvement if there are previous scores
+            if prev_scores:
+                improved = []
+                for dim in latest_scores:
+                    prev = prev_scores.get(dim, {}).get('score', 0)
+                    curr = latest_scores[dim].get('score', 0)
+                    if curr > prev:
+                        improved.append(dim)
+                if improved:
+                    improved_str = ", ".join(improved)
+                    st.success(f"📈 Nice improvement on: {improved_str}!")
+        
         st.markdown("---")
+        
+        # Show ONLY the latest essay and coaching message
+        latest_essay = None
+        latest_coaching = None
+        older_messages = []
+        
         for msg in st.session_state.messages:
             if msg['type'] == 'essay':
-                st.markdown(f"> {msg['content']}")
+                if latest_essay is not None:
+                    older_messages.append(latest_essay)
+                latest_essay = msg['content']
             elif msg['type'] == 'coaching':
-                st.markdown(msg['content'])
+                if latest_coaching is not None:
+                    older_messages.append(latest_coaching)
+                latest_coaching = msg['content']
+        
+        # Show older exchanges in a collapsed expander
+        if older_messages:
+            with st.expander("📜 Previous drafts and feedback", expanded=False):
+                for old_msg in older_messages:
+                    st.markdown(f"> {old_msg}" if not old_msg.startswith(("Here's", "There's", "📋", "You", "Great", "Nice", "Good", "Let me", "I notice")) else old_msg)
+                    st.markdown("---")
+        
+        # Show current essay
+        if latest_essay:
+            st.markdown(f"> {latest_essay}")
+        
+        # Show current coaching
+        if latest_coaching:
+            st.markdown(latest_coaching)
         
         st.markdown("---")
         st.markdown("**Revise your response based on the coaching above:**")
