@@ -11,6 +11,10 @@ from passage_config import (
     PASSAGE_TITLE, PASSAGE_TEXT, WRITING_PROMPT, 
     VALUE_RUBRIC, DIMENSION_ORDER, TARGET_SCORE
 )
+from session_logger import (
+    get_session_id, log_phase_transition, log_complete_session,
+    build_export_json
+)
 
 
 def init_session():
@@ -27,6 +31,8 @@ def init_session():
         st.session_state.validation_result = None
     if 'draft_text' not in st.session_state:
         st.session_state.draft_text = ""
+    # Initialize session ID for logging
+    get_session_id()
 
 
 def render_scores(scores: dict):
@@ -157,6 +163,12 @@ At the end, you'll answer a few short questions about your experience. This isn'
         
         st.markdown("---")
         
+        st.markdown("""
+<div style="font-size: 1.15rem; font-weight: 600; text-align: center; background: #fef3c7; padding: 16px 20px; border-radius: 10px; margin: 16px 0; line-height: 1.6;">
+📌 <strong>One important thing:</strong> When you finish your session, you'll see a big <strong>"✅ I'm Finished"</strong> button. Please click it! That's how your work gets saved for the research study. Don't close the browser until you've clicked it.
+</div>
+        """, unsafe_allow_html=True)
+        
         st.markdown('<div class="goal-box">🎯 The Goal: Get all 5 dimensions to a score of 3/4 (meeting the standard)</div>', unsafe_allow_html=True)
         
         st.markdown("")
@@ -245,6 +257,7 @@ At the end, you'll answer a few short questions about your experience. This isn'
                     'type': 'coaching',
                     'content': result['message']
                 })
+                log_phase_transition(result['phase'], engine, {"action": "initial_submit"})
                 st.rerun()
     
     # Pre-submission validation phase
@@ -376,12 +389,24 @@ At the end, you'll answer a few short questions about your experience. This isn'
                 'type': 'coaching',
                 'content': result['message']
             })
+            log_phase_transition(result['phase'], engine, {"action": "revision", "revision_num": engine.memory.get_revision_count()})
             st.rerun()
     
     # Reflection phase
     elif st.session_state.phase == 'reflect':
-        st.markdown("## Step 4: Reflection")
-        st.info("Let's take a moment to think about what you learned during this session.")
+        st.markdown("## 🪞 Step 4: Reflection")
+        
+        st.markdown("""
+<div style="font-size: 1.1rem; line-height: 1.6; background: #f0f4ff; padding: 16px 20px; border-radius: 10px; margin-bottom: 16px;">
+<strong>Why this step matters:</strong> Research shows that reflection is one of the most powerful ways to turn a single experience into lasting learning. By thinking about what was hard, what clicked, and how you'd approach things differently, you're building skills you can use in <em>any</em> writing situation — not just this one.
+</div>
+        """, unsafe_allow_html=True)
+        
+        st.markdown("""
+<div style="font-size: 0.95rem; line-height: 1.5; background: #fef3c7; padding: 12px 16px; border-radius: 8px; margin-bottom: 16px;">
+📊 <strong>A note about research:</strong> Your reflections are part of a dissertation study on how AI-guided tutoring can improve writing. Your honest responses — what worked, what didn't, what was frustrating — are incredibly valuable for understanding how to make this tool better. There are no wrong answers here. Just be real.
+</div>
+        """, unsafe_allow_html=True)
         
         # Show score progress
         if engine.memory.get_revision_count() > 0:
@@ -439,11 +464,17 @@ At the end, you'll answer a few short questions about your experience. This isn'
                     'type': 'coaching',
                     'content': result['message']
                 })
+                log_phase_transition(result['phase'], engine, {"action": "reflection", "reflection_turn": engine.memory.reflection_turn})
                 st.rerun()
     
     # Complete phase
     elif st.session_state.phase == 'complete':
         st.markdown("## 🎉 Session Complete!")
+        
+        # Auto-log the complete session on first render
+        if 'session_logged' not in st.session_state:
+            log_complete_session(engine)
+            st.session_state.session_logged = True
         
         # Show final message
         for msg in st.session_state.messages[-3:]:
@@ -458,13 +489,52 @@ At the end, you'll answer a few short questions about your experience. This isn'
         st.markdown(f"- **Coaching turns:** {stats['coaching_turns']}")
         st.markdown(f"- **Essay versions:** {stats['essay_versions']}")
         
-        if st.button("Start a new session", type="primary"):
+        st.markdown("---")
+        
+        # Big finish section
+        st.markdown("""
+<div style="font-size: 1.3rem; font-weight: 700; text-align: center; background: #d1fae5; padding: 24px; border-radius: 12px; margin: 20px 0; line-height: 1.6;">
+🎓 You did it! Your session has been recorded automatically.<br/>
+<span style="font-size: 1.1rem; font-weight: 400;">Your essays, scores, coaching dialogue, and reflections are all saved for the research study.</span>
+</div>
+        """, unsafe_allow_html=True)
+        
+        st.markdown(f"**Your Session ID:** `{get_session_id()}`")
+        st.markdown("*Save this ID in case you need to reference this session later.*")
+        
+        st.markdown("")
+        
+        # Download option
+        st.markdown("### 📥 Want a copy for yourself?")
+        session_json = build_export_json(engine)
+        
+        from datetime import datetime
+        st.download_button(
+            label="Download my session data (JSON)",
+            data=session_json,
+            file_name=f"writing_session_{get_session_id()}_{datetime.now().strftime('%Y%m%d')}.json",
+            mime="application/json"
+        )
+        
+        st.markdown("---")
+        
+        # Big "I'm Finished" button
+        st.markdown("""
+<div style="font-size: 1.5rem; font-weight: 700; text-align: center; margin: 20px 0;">
+👇 Click below when you're ready to finish
+</div>
+        """, unsafe_allow_html=True)
+        
+        if st.button("✅ I'm Finished — Start a New Session", type="primary", use_container_width=True):
             # Reset everything
             st.session_state.engine = SocraticEngine()
             st.session_state.phase = 'read'
             st.session_state.messages = []
             st.session_state.validation_result = None
             st.session_state.draft_text = ""
+            st.session_state.session_logged = False
+            if 'session_id' in st.session_state:
+                del st.session_state.session_id
             st.rerun()
 
 
