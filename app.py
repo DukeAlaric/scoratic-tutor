@@ -464,35 +464,36 @@ Ready for formal scoring and Socratic coaching
         
         st.markdown("---")
         
-        # Show ONLY the latest essay and coaching message
-        latest_essay = None
-        latest_coaching = None
-        older_messages = []
-        
+        # Collect message history into pairs: (essay, coaching, scores)
+        exchanges = []
+        current_exchange = {}
         for msg in st.session_state.messages:
-            if msg['type'] == 'essay':
-                if latest_essay is not None:
-                    older_messages.append(latest_essay)
-                latest_essay = msg['content']
+            if msg['type'] == 'scores':
+                current_exchange['scores'] = msg['scores']
+            elif msg['type'] == 'essay':
+                current_exchange['essay'] = msg['content']
             elif msg['type'] == 'coaching':
-                if latest_coaching is not None:
-                    older_messages.append(latest_coaching)
-                latest_coaching = msg['content']
+                current_exchange['coaching'] = msg['content']
+                exchanges.append(current_exchange)
+                current_exchange = {}
         
-        # Show older exchanges in a collapsed expander
-        if older_messages:
-            with st.expander("📜 Previous drafts and feedback", expanded=False):
-                for old_msg in older_messages:
-                    st.markdown(f"> {old_msg}" if not old_msg.startswith(("Here's", "There's", "📋", "You", "Great", "Nice", "Good", "Let me", "I notice")) else old_msg)
+        # Show older exchanges (all but the last) in a collapsed expander
+        if len(exchanges) > 1:
+            with st.expander(f"📜 Previous drafts and feedback ({len(exchanges) - 1} earlier)", expanded=False):
+                for i, ex in enumerate(exchanges[:-1]):
+                    st.markdown(f"**Draft {i + 1}:**")
+                    if 'essay' in ex:
+                        st.markdown(f"> {ex['essay']}")
+                    if 'coaching' in ex:
+                        st.markdown(f"*Coach:* {ex['coaching']}")
                     st.markdown("---")
         
-        # Show current essay
-        if latest_essay:
-            st.markdown(f"> {latest_essay}")
-        
-        # Show current coaching
-        if latest_coaching:
-            st.markdown(latest_coaching)
+        # Show latest exchange
+        latest = exchanges[-1] if exchanges else {}
+        if 'essay' in latest:
+            st.markdown(f"> {latest['essay']}")
+        if 'coaching' in latest:
+            st.markdown(latest['coaching'])
         
         st.markdown("---")
         st.markdown("**Revise your response based on the coaching above:**")
