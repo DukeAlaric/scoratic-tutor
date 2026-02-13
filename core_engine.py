@@ -52,7 +52,10 @@ class PreSubmissionValidator:
         try:
             import os
             if os.environ.get("ANTHROPIC_API_KEY"):
-                return self._ai_check(essay)
+                result = self._ai_check(essay)
+                # Always add mechanics check, even for AI results
+                result["mechanics"] = self._check_mechanics(essay)
+                return result
         except Exception:
             pass
         return self._heuristic_check(essay)
@@ -237,8 +240,11 @@ class PreSubmissionValidator:
         # Grammar/mechanics check
         mechanics_findings = self._check_mechanics(essay)
 
-        present_count = sum(1 for c in checks if c["status"] in ("present", "weak"))
-        overall_ready = present_count >= 3 and word_count >= 10
+        present_count = sum(1 for c in checks if c["status"] == "present")
+        weak_count = sum(1 for c in checks if c["status"] == "weak")
+        missing_count = sum(1 for c in checks if c["status"] == "missing")
+        # Ready = at least 3 truly good, no missing, and enough words
+        overall_ready = present_count >= 3 and missing_count == 0 and word_count >= 20
 
         present = [c["objective"] for c in checks if c["status"] == "present"]
         missing = [c["objective"] for c in checks if c["status"] == "missing"]

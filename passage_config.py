@@ -159,8 +159,8 @@ OBJECTIVES:
 1. POSITION: Does the draft take a clear, arguable stance? (Not just "I don't like it" — does it make a claim someone could disagree with?)
 2. EVIDENCE: Does it reference specific details from the passage AND integrate them meaningfully? (Just dropping a name isn't enough — it should connect to the argument. Quality matters, not just presence.)
 3. REASONING: Does it explain WHY with logical depth? (Not just "because it's gross" — does it actually build an argument? Circular reasoning like "it's bad because I don't like it" is weak, not present.)
-4. STRUCTURE: Are ideas organized logically? (Not just multiple sentences — are related ideas grouped? Is there any paragraph structure or flow?)
-5. TONE: Does it use academic language with proper mechanics? (Check for: slang, missing apostrophes, misspellings, run-on sentences, texting-style. Writing that reads like speech or a text message should be "weak" or "missing" even if the ideas are good.)
+4. STRUCTURE: Are ideas organized into paragraphs with logical flow? (A single block of text with no paragraphs is "weak" even if it has multiple sentences. "present" requires actual paragraph breaks and ideas grouped logically.)
+5. TONE: Does it use academic vocabulary and sentence construction? (Conversational writing like "that is weird" or "people get so mad" is still informal — mark as "weak." "present" requires language a teacher would consider essay-appropriate. Check also for: slang, missing apostrophes, misspellings, run-on sentences.)
 
 Return ONLY valid JSON:
 {{
@@ -210,7 +210,7 @@ RULES:
 - "weak" = attempted but needs real improvement. This is the honest middle ground — use it freely.
 - "missing" = not attempted or so poorly done it doesn't count.
 - BE HONEST. Being encouraging does NOT mean pretending everything is good. A student who writes with misspellings, no paragraphs, and "thats weird" as reasoning has WEAK work, not GOOD work. You help them more by being truthful than by cheerleading.
-- overall_ready = true if at least 3 of 5 are "present" or "weak" (not missing).
+- overall_ready = true ONLY if at least 3 of 5 are "present" (not weak) AND none are "missing". If most areas need work, overall_ready should be false even if nothing is completely missing.
 - Keep tips under 35 words. Be specific to their actual draft.
 - If draft is very short (< 2 sentences), overall_ready = false.
 - NEVER write sentences for them, give templates, or provide fill-in-the-blank starters."""
