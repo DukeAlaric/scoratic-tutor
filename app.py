@@ -53,38 +53,113 @@ def main():
     
     st.title("📝 Socratic Writing Tutor")
     
+    # Custom CSS for welcome page
+    st.markdown("""
+    <style>
+    .big-step {
+        font-size: 1.3rem;
+        font-weight: 600;
+        margin: 8px 0;
+        line-height: 1.6;
+    }
+    .coach-title {
+        font-size: 1.4rem;
+        font-weight: 700;
+        margin: 16px 0 8px 0;
+    }
+    .coach-desc {
+        font-size: 1.05rem;
+        line-height: 1.6;
+        margin-bottom: 12px;
+    }
+    .reassurance {
+        font-size: 1.3rem;
+        font-weight: 700;
+        color: #065f46;
+        background: #d1fae5;
+        padding: 12px 20px;
+        border-radius: 10px;
+        margin: 12px 0;
+        text-align: center;
+    }
+    .goal-box {
+        font-size: 1.5rem;
+        font-weight: 700;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 20px 24px;
+        border-radius: 12px;
+        text-align: center;
+        margin: 20px 0;
+    }
+    .section-header {
+        font-size: 1.5rem;
+        font-weight: 700;
+        margin: 24px 0 12px 0;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
     init_session()
     engine = st.session_state.engine
     
     # Welcome message
     if st.session_state.phase == 'read':
+        st.markdown("## Welcome!")
+        st.markdown('<div class="section-header">Here\'s how this works:</div>', unsafe_allow_html=True)
+        
         st.markdown("""
-## Welcome!
-
-Here's how this works:
-
-1. **Read** a short passage about a debatable topic
-2. **Write** a response taking a clear position
-3. **Check & improve** your draft with help from two coaches (more on that below)
-4. **Revise** your response based on feedback
-5. **Reflect** on what you learned
-
----
-
-**You'll have two coaches working with you:**
-
-🔍 **The Draft Coach** helps you *before* you're scored. It's an informal check that scans your writing for the basics — do you have a clear position? Did you use evidence from the passage? Is your reasoning showing? Think of it as a friendly second pair of eyes. You can use it as many times as you want with no pressure.
-
-📝 **The Socratic Coach** steps in once you submit. It formally scores your writing on 5 dimensions and then asks you questions to help you strengthen your weakest areas. It won't tell you what to write — it'll help you figure it out yourself. Don't worry, you can still revise after submitting.
-
-Both coaches are here to help you grow as a writer. The Draft Coach helps you prepare. The Socratic Coach helps you go deeper.
-
----
-
-**The goal:** Get all 5 dimensions to a score of 3/4 (meeting the standard).
-
-**Ready?**
-        """)
+<div class="big-step">1. 📖 <strong>Read</strong> a short passage about a debatable topic</div>
+<div class="big-step">2. ✏️ <strong>Write</strong> a response taking a clear position</div>
+<div class="big-step">3. 🔍 <strong>Check & Improve</strong> your draft with help from two coaches</div>
+<div class="big-step">4. 📝 <strong>Revise</strong> your response based on feedback</div>
+<div class="big-step">5. 🪞 <strong>Reflect</strong> on what you learned and how you'll use it next time</div>
+        """, unsafe_allow_html=True)
+        
+        st.markdown("---")
+        
+        st.markdown('<div class="section-header">🤝 You\'ll have two coaches working with you:</div>', unsafe_allow_html=True)
+        
+        st.markdown("""
+<div class="coach-title">🔍 The Draft Coach</div>
+<div class="coach-desc">
+Helps you <em>before</em> you're scored. It's an informal check that scans your writing for the basics — do you have a clear position? Did you use evidence from the passage? Is your reasoning showing? Think of it as a friendly second pair of eyes that points out what's working and what might need attention.
+</div>
+        """, unsafe_allow_html=True)
+        
+        st.markdown('<div class="reassurance">✨ You can use the Draft Coach as many times as you want — no pressure, no scoring.</div>', unsafe_allow_html=True)
+        
+        st.markdown("""
+<div class="coach-title">📝 The Socratic Coach</div>
+<div class="coach-desc">
+Steps in once you submit. It formally scores your writing on 5 dimensions and then asks you questions to help you strengthen your weakest areas. It won't tell you what to write — it'll help you figure it out yourself. Think of it like a teacher who believes you already have good ideas and just need the right questions to bring them out.
+</div>
+        """, unsafe_allow_html=True)
+        
+        st.markdown('<div class="reassurance">💪 Don\'t worry — you can still revise and improve after submitting, too. This is all part of the learning process.</div>', unsafe_allow_html=True)
+        
+        st.markdown("""
+<div style="font-size: 1.25rem; font-weight: 700; text-align: center; padding: 16px 20px; margin: 20px 0; background: #f0f4ff; border-radius: 10px; line-height: 1.6;">
+Both coaches are here to help you grow as a writer.<br/>
+🔍 The Draft Coach helps you prepare. &nbsp; 📝 The Socratic Coach helps you go deeper.
+</div>
+        """, unsafe_allow_html=True)
+        
+        st.markdown("---")
+        
+        st.markdown('<div class="section-header">🪞 What\'s the Reflection step about?</div>', unsafe_allow_html=True)
+        
+        st.markdown("""
+<div class="coach-desc">
+At the end, you'll answer a few short questions about your experience. This isn't a test — there are no wrong answers. Reflection is how your brain moves learning from "something I did once" to "something I know how to do." You'll think about what was hard, what clicked, and where else you might use these skills. It only takes a few minutes, and it's one of the most powerful parts of the whole process.
+</div>
+        """, unsafe_allow_html=True)
+        
+        st.markdown("---")
+        
+        st.markdown('<div class="goal-box">🎯 The Goal: Get all 5 dimensions to a score of 3/4 (meeting the standard)</div>', unsafe_allow_html=True)
+        
+        st.markdown("")
         
         if st.button("Let's begin!", type="primary"):
             st.session_state.phase = 'passage'
