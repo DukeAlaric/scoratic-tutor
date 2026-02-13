@@ -334,16 +334,58 @@ At the end, you'll answer a few short questions about your experience. This isn'
             
             st.markdown("---")
             
-            # Action buttons
+            # Editable draft workspace
+            st.markdown("""
+<div style="font-size: 1.15rem; font-weight: 600; margin-bottom: 8px;">
+✏️ Your draft — edit it right here based on the feedback above:
+</div>
+            """, unsafe_allow_html=True)
+            
+            revised_draft = st.text_area(
+                "Your draft:",
+                value=st.session_state.draft_text,
+                height=200,
+                key="validate_draft",
+                label_visibility="collapsed"
+            )
+            # Keep draft_text in sync
+            st.session_state.draft_text = revised_draft
+            
+            # Re-check button
+            if st.button("🔍 Check my draft again", type="secondary", use_container_width=True) and revised_draft.strip():
+                with st.spinner("Checking your draft..."):
+                    new_result = engine.validator.validate(revised_draft.strip())
+                    st.session_state.validation_result = new_result
+                    st.rerun()
+            
+            st.markdown("---")
+            
+            # Choice framing
+            st.markdown("""
+<div style="font-size: 1.15rem; font-weight: 600; text-align: center; margin: 12px 0;">
+You have two choices:
+</div>
+            """, unsafe_allow_html=True)
+            
             col1, col2 = st.columns(2)
             
             with col1:
+                st.markdown("""
+<div style="text-align: center; font-size: 0.95rem; margin-bottom: 8px;">
+Take your draft back to the writing page to keep working on it
+</div>
+                """, unsafe_allow_html=True)
                 if st.button("✏️ Go back and revise", type="primary", use_container_width=True):
                     st.session_state.phase = 'write'
                     st.session_state.validation_result = None
                     st.rerun()
             
             with col2:
+                st.markdown("""
+<div style="text-align: center; font-size: 0.95rem; margin-bottom: 8px;">
+Submit as-is for formal scoring and Socratic coaching
+</div>
+                """, unsafe_allow_html=True)
                 submit_label = "✅ Submit for scoring" if overall_ready else "⚠️ Submit anyway"
                 if st.button(submit_label, type="secondary", use_container_width=True):
                     essay = st.session_state.draft_text
@@ -361,12 +403,8 @@ At the end, you'll answer a few short questions about your experience. This isn'
                         'type': 'coaching',
                         'content': result['message']
                     })
+                    log_phase_transition(result['phase'], engine, {"action": "initial_submit"})
                     st.rerun()
-            
-            if not overall_ready:
-                missing_count = sum(1 for c in checks if c.get("status") == "missing")
-                if missing_count >= 3:
-                    st.info("💡 **Tip:** Your draft is missing several key elements. Going back to add them will give you a stronger starting point for coaching.")
         else:
             st.error("No validation results. Going back to writing.")
             st.session_state.phase = 'write'
