@@ -104,9 +104,26 @@ def main():
         margin: 24px 0 12px 0;
     }
     div.stButton > button {
-        font-size: 1.1rem;
-        padding: 12px 24px;
-        font-weight: 600;
+        font-size: 1.1rem !important;
+        padding: 12px 24px !important;
+        font-weight: 600 !important;
+        min-height: 54px !important;
+    }
+    div.stButton > button[kind="primary"],
+    div.stButton > button[kind="secondary"],
+    div.stButton > button[data-testid="baseButton-primary"],
+    div.stButton > button[data-testid="baseButton-secondary"],
+    .stButton > button {
+        font-size: 1.1rem !important;
+        padding: 12px 24px !important;
+        font-weight: 600 !important;
+        min-height: 54px !important;
+    }
+    .stDownloadButton > button {
+        font-size: 1.1rem !important;
+        padding: 12px 24px !important;
+        font-weight: 600 !important;
+        min-height: 54px !important;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -178,7 +195,7 @@ At the end, you'll answer a few short questions about your experience. This isn'
         
         st.markdown("")
         
-        if st.button("Let's begin!", type="primary"):
+        if st.button("Let's begin!", type="primary", use_container_width=True):
             st.session_state.phase = 'passage'
             st.rerun()
     
@@ -190,7 +207,7 @@ At the end, you'll answer a few short questions about your experience. This isn'
         st.markdown(f"### {PASSAGE_TITLE}")
         st.markdown(PASSAGE_TEXT)
         
-        if st.button("I've read it — let me write!", type="primary"):
+        if st.button("I've read it — let me write!", type="primary", use_container_width=True):
             st.session_state.phase = 'write'
             st.rerun()
     
@@ -321,14 +338,14 @@ At the end, you'll answer a few short questions about your experience. This isn'
             col1, col2 = st.columns(2)
             
             with col1:
-                if st.button("✏️ Go back and revise", type="primary"):
+                if st.button("✏️ Go back and revise", type="primary", use_container_width=True):
                     st.session_state.phase = 'write'
                     st.session_state.validation_result = None
                     st.rerun()
             
             with col2:
                 submit_label = "✅ Submit for scoring" if overall_ready else "⚠️ Submit anyway"
-                if st.button(submit_label, type="secondary"):
+                if st.button(submit_label, type="secondary", use_container_width=True):
                     essay = st.session_state.draft_text
                     result = engine.process_initial_essay(essay)
                     st.session_state.phase = result['phase']
@@ -388,7 +405,7 @@ At the end, you'll answer a few short questions about your experience. This isn'
             placeholder="Write your revision here..."
         )
         
-        if st.button("Submit revision", type="primary") and revision.strip():
+        if st.button("Submit revision", type="primary", use_container_width=True) and revision.strip():
             st.session_state.draft_text = revision.strip()
             result = engine.process_revision(revision)
             st.session_state.phase = result['phase']
@@ -472,7 +489,7 @@ At the end, you'll answer a few short questions about your experience. This isn'
                 key=f"reflection_{reflection_turn}"
             )
             
-            if st.button("Submit", type="primary") and reflection.strip():
+            if st.button("Submit", type="primary", use_container_width=True) and reflection.strip():
                 result = engine.process_reflection(reflection)
                 st.session_state.phase = result['phase']
                 st.session_state.messages.append({
