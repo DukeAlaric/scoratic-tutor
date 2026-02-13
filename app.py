@@ -479,14 +479,12 @@ Ready for formal scoring and Socratic coaching
         
         # Show older exchanges (all but the last) in a collapsed expander
         if len(exchanges) > 1:
-            with st.expander(f"📜 Previous drafts and feedback ({len(exchanges) - 1} earlier)", expanded=False):
+            with st.expander(f"📜 Your previous drafts ({len(exchanges) - 1} earlier)", expanded=False):
                 for i, ex in enumerate(exchanges[:-1]):
                     st.markdown(f"**Draft {i + 1}:**")
                     if 'essay' in ex:
-                        st.markdown(f"> {ex['essay']}")
-                    if 'coaching' in ex:
-                        st.markdown(f"*Coach:* {ex['coaching']}")
-                    st.markdown("---")
+                        st.text(ex['essay'])
+                    st.markdown("")
         
         # Show latest exchange
         latest = exchanges[-1] if exchanges else {}
