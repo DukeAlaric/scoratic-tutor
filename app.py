@@ -59,23 +59,31 @@ def main():
     # Welcome message
     if st.session_state.phase == 'read':
         st.markdown("""
-        ## Welcome!
-        
-        Here's how this works:
-        
-        1. **Read** a short passage about a debatable topic
-        2. **Write** a response taking a clear position
-        3. **Get feedback** — I'll score your writing on 5 dimensions and ask you questions to help you improve
-        4. **Revise** your response based on our conversation
-        5. **Reflect** on what you learned
-        
-        This is a Socratic tutor — I won't tell you what to write. Instead, I'll ask questions that help you **discover** how to make your writing stronger.
-        
-        ---
-        
-        **The goal:** Get all 5 dimensions to a score of 3/4 (meeting the standard).
-        
-        **Ready?**
+## Welcome!
+
+Here's how this works:
+
+1. **Read** a short passage about a debatable topic
+2. **Write** a response taking a clear position
+3. **Check & improve** your draft with help from two coaches (more on that below)
+4. **Revise** your response based on feedback
+5. **Reflect** on what you learned
+
+---
+
+**You'll have two coaches working with you:**
+
+🔍 **The Draft Coach** helps you *before* you're scored. It's an informal check that scans your writing for the basics — do you have a clear position? Did you use evidence from the passage? Is your reasoning showing? Think of it as a friendly second pair of eyes. You can use it as many times as you want with no pressure.
+
+📝 **The Socratic Coach** steps in once you submit. It formally scores your writing on 5 dimensions and then asks you questions to help you strengthen your weakest areas. It won't tell you what to write — it'll help you figure it out yourself. Don't worry, you can still revise after submitting.
+
+Both coaches are here to help you grow as a writer. The Draft Coach helps you prepare. The Socratic Coach helps you go deeper.
+
+---
+
+**The goal:** Get all 5 dimensions to a score of 3/4 (meeting the standard).
+
+**Ready?**
         """)
         
         if st.button("Let's begin!", type="primary"):
