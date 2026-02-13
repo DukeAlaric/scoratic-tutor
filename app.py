@@ -351,19 +351,12 @@ At the end, you'll answer a few short questions about your experience. This isn'
             # Keep draft_text in sync
             st.session_state.draft_text = revised_draft
             
-            # Re-check button
-            if st.button("🔍 Check my draft again", type="secondary", use_container_width=True) and revised_draft.strip():
-                with st.spinner("Checking your draft..."):
-                    new_result = engine.validator.validate(revised_draft.strip())
-                    st.session_state.validation_result = new_result
-                    st.rerun()
-            
             st.markdown("---")
             
             # Choice framing
             st.markdown("""
 <div style="font-size: 1.15rem; font-weight: 600; text-align: center; margin: 12px 0;">
-You have two choices:
+When you're ready:
 </div>
             """, unsafe_allow_html=True)
             
@@ -372,22 +365,23 @@ You have two choices:
             with col1:
                 st.markdown("""
 <div style="text-align: center; font-size: 0.95rem; margin-bottom: 8px;">
-Take your draft back to the writing page to keep working on it
+Made some changes? Check how it looks now
 </div>
                 """, unsafe_allow_html=True)
-                if st.button("✏️ Go back and revise", type="primary", use_container_width=True):
-                    st.session_state.phase = 'write'
-                    st.session_state.validation_result = None
-                    st.rerun()
+                if st.button("🔍 Check my draft again", type="secondary", use_container_width=True) and revised_draft.strip():
+                    with st.spinner("Checking your draft..."):
+                        new_result = engine.validator.validate(revised_draft.strip())
+                        st.session_state.validation_result = new_result
+                        st.rerun()
             
             with col2:
                 st.markdown("""
 <div style="text-align: center; font-size: 0.95rem; margin-bottom: 8px;">
-Submit as-is for formal scoring and Socratic coaching
+Ready for formal scoring and Socratic coaching
 </div>
                 """, unsafe_allow_html=True)
                 submit_label = "✅ Submit for scoring" if overall_ready else "⚠️ Submit anyway"
-                if st.button(submit_label, type="secondary", use_container_width=True):
+                if st.button(submit_label, type="primary", use_container_width=True):
                     essay = st.session_state.draft_text
                     result = engine.process_initial_essay(essay)
                     st.session_state.phase = result['phase']
