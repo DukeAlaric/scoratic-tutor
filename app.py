@@ -103,6 +103,11 @@ def main():
         font-weight: 700;
         margin: 24px 0 12px 0;
     }
+    div.stButton > button {
+        font-size: 1.1rem;
+        padding: 12px 24px;
+        font-weight: 600;
+    }
     </style>
     """, unsafe_allow_html=True)
     
@@ -240,17 +245,6 @@ At the end, you'll answer a few short questions about your experience. This isn'
         )
         st.session_state.draft_text = essay
 
-        # Bigger buttons via CSS
-        st.markdown("""
-        <style>
-        div.stButton > button {
-            font-size: 1.1rem;
-            padding: 12px 24px;
-            font-weight: 600;
-        }
-        </style>
-        """, unsafe_allow_html=True)
-
         col1, col2 = st.columns(2)
         
         with col1:
@@ -306,20 +300,20 @@ At the end, you'll answer a few short questions about your experience. This isn'
             
             # Show each objective as a status row
             status_config = {
-                "present": ("✅", "Good", "#d1fae5"),
-                "weak": ("⚠️", "Needs work", "#fef3c7"),
-                "missing": ("❌", "Missing", "#fee2e2")
+                "present": ("✅", "Good"),
+                "weak": ("⚠️", "Needs work"),
+                "missing": ("❌", "Missing")
             }
             
             for check in checks:
                 status = check.get("status", "missing")
-                emoji, label, bg = status_config.get(status, ("❓", "Unknown", "#f3f4f6"))
+                emoji, label = status_config.get(status, ("❓", "Unknown"))
                 obj = check.get("objective", "")
                 tip = check.get("tip", "")
                 
                 st.markdown(f"{emoji} **{obj}** — {label}")
                 if tip:
-                    st.markdown(f"   *💡 {tip}*")
+                    st.markdown(f"   *{tip}*")
             
             st.markdown("---")
             

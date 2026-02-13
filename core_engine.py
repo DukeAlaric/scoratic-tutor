@@ -76,47 +76,121 @@ class PreSubmissionValidator:
             return result
         raise ValueError("Could not parse AI response")
 
+    def _estimate_writing_level(self, essay: str) -> str:
+        """Rough estimate: 'basic', 'intermediate', or 'advanced'."""
+        words = essay.split()
+        avg_word_len = sum(len(w) for w in words) / max(len(words), 1)
+        long_words = sum(1 for w in words if len(w) > 7)
+        long_word_pct = long_words / max(len(words), 1)
+        has_casual = any(c in essay.lower() for c in self.CASUAL_MARKERS)
+        
+        if avg_word_len < 4.5 or has_casual or long_word_pct < 0.05:
+            return "basic"
+        elif avg_word_len > 5.2 or long_word_pct > 0.20:
+            return "advanced"
+        return "intermediate"
+
     def _heuristic_check(self, essay: str) -> dict:
         lower = essay.lower()
         words = essay.split()
         sentences = [s.strip() for s in essay.replace("!", ".").replace("?", ".").split(".") if s.strip()]
         word_count = len(words)
+        level = self._estimate_writing_level(essay)
         checks = []
 
+        # TIPS adapted by writing level
         has_position = any(p in lower for p in self.POSITION_WORDS)
-        checks.append({
-            "objective": "POSITION",
-            "status": "present" if has_position else ("weak" if word_count > 20 else "missing"),
-            "tip": "" if has_position else "Strong essays start with a clear stance — it gives your reader (and your argument) a direction to follow."
-        })
+        if has_position:
+            pos_tip = {
+                "basic": "Good — you said what you think! That's the first step in a strong essay.",
+                "intermediate": "Nice work — your position comes through clearly and gives your essay direction.",
+                "advanced": "Strong opening stance — your position anchors the essay and signals your argument."
+            }[level]
+        else:
+            pos_tip = {
+                "basic": "What do YOU think about this? Try starting with 'I think...' or 'I believe...' so your reader knows where you stand.",
+                "intermediate": "Strong essays start with a clear stance — it gives your reader (and your argument) a direction to follow.",
+                "advanced": "Your draft would benefit from an explicit thesis statement that frames your analytical approach."
+            }[level]
+        checks.append({"objective": "POSITION", "status": "present" if has_position else ("weak" if word_count > 20 else "missing"), "tip": pos_tip})
 
         found = [m for m in self.EVIDENCE_MARKERS if m in lower]
         ev_status = "present" if len(found) >= 2 else ("weak" if len(found) == 1 else "missing")
-        checks.append({
-            "objective": "EVIDENCE",
-            "status": ev_status,
-            "tip": "" if ev_status == "present" else "Specific facts (dates, names, statistics) make your argument credible — without them, it's just opinion."
-        })
+        if ev_status == "present":
+            ev_tip = {
+                "basic": "Awesome — you used real facts from the passage! That makes your writing way more convincing.",
+                "intermediate": "Great job pulling in specific details from the passage — that makes your argument much more convincing.",
+                "advanced": "Effective evidence integration — your use of passage details grounds the argument in textual support."
+            }[level]
+        elif ev_status == "weak":
+            ev_tip = {
+                "basic": "You mentioned something from the passage — nice! Can you add one more fact, like a name or a number?",
+                "intermediate": "You've started using evidence — try adding one more specific detail like a date or statistic to make it stronger.",
+                "advanced": "You've referenced the passage — consider adding a second data point to strengthen your evidentiary base."
+            }[level]
+        else:
+            ev_tip = {
+                "basic": "Can you find a fact from the passage to put in your essay? Maybe a name, a year, or a number — that shows you really read it!",
+                "intermediate": "Specific facts from the passage (like dates, names, or statistics) are what separate opinion from argument. Try weaving one in!",
+                "advanced": "Your argument currently relies on assertion without textual support. Grounding claims in passage-specific evidence would significantly strengthen it."
+            }[level]
+        checks.append({"objective": "EVIDENCE", "status": ev_status, "tip": ev_tip})
 
         has_reasoning = any(r in lower for r in self.REASONING_WORDS)
-        checks.append({
-            "objective": "REASONING",
-            "status": "present" if has_reasoning else ("weak" if word_count > 30 else "missing"),
-            "tip": "" if has_reasoning else "Evidence alone doesn't argue for you — explaining WHY it matters is what turns facts into an argument."
-        })
+        if has_reasoning:
+            reason_tip = {
+                "basic": "You explained WHY — that's great! Explaining your thinking is what makes your writing really strong.",
+                "intermediate": "You're explaining your thinking — that's what turns facts into a real argument. Keep it up!",
+                "advanced": "Your analytical reasoning connects evidence to claims effectively."
+            }[level]
+        else:
+            reason_tip = {
+                "basic": "You said what you think — now tell me WHY! Try using the word 'because' to explain your reason.",
+                "intermediate": "Evidence alone doesn't argue for you — your reader needs to hear WHY it matters. Try explaining what your evidence proves.",
+                "advanced": "Your draft would benefit from explicit analytical reasoning connecting your evidence to your thesis."
+            }[level]
+        checks.append({"objective": "REASONING", "status": "present" if has_reasoning else ("weak" if word_count > 30 else "missing"), "tip": reason_tip})
 
-        checks.append({
-            "objective": "STRUCTURE",
-            "status": "present" if len(sentences) >= 4 else ("weak" if len(sentences) >= 2 else "missing"),
-            "tip": "" if len(sentences) >= 4 else "Developing your ideas across several sentences helps your reader follow your thinking step by step."
-        })
+        if len(sentences) >= 4:
+            struct_tip = {
+                "basic": "You wrote several sentences — that makes it easy to follow your ideas!",
+                "intermediate": "Your ideas flow across multiple sentences — that helps your reader follow your thinking step by step.",
+                "advanced": "Solid structural development — multiple ideas are clearly articulated."
+            }[level]
+        elif len(sentences) >= 2:
+            struct_tip = {
+                "basic": "You've got a couple of sentences going — can you add a few more? Tell me more about what you think!",
+                "intermediate": "You've got a couple of ideas going — try developing them into a few more sentences so your reader can follow along.",
+                "advanced": "Consider expanding your argument across additional sentences to fully develop your analytical points."
+            }[level]
+        else:
+            struct_tip = {
+                "basic": "Right now it's pretty short — can you write a few more sentences? I'd love to hear more of your thinking!",
+                "intermediate": "Right now your draft is very short. Developing your ideas across several sentences helps your reader follow your thinking.",
+                "advanced": "Your draft needs further development — expand across multiple sentences to build a sustained argument."
+            }[level]
+        checks.append({"objective": "STRUCTURE", "status": "present" if len(sentences) >= 4 else ("weak" if len(sentences) >= 2 else "missing"), "tip": struct_tip})
 
         has_casual = any(c in lower for c in self.CASUAL_MARKERS)
-        checks.append({
-            "objective": "TONE",
-            "status": "missing" if has_casual else ("present" if word_count > 15 else "weak"),
-            "tip": "Academic language shows your reader you're thinking carefully — try 'I believe' or 'the evidence suggests' instead." if has_casual else ""
-        })
+        if has_casual:
+            tone_tip = {
+                "basic": "I can tell you feel strongly! Now try saying it the way you would if you were explaining it to your teacher instead of your friend.",
+                "intermediate": "Your passion is great — now try channeling it into academic language. Phrases like 'I believe' or 'the evidence suggests' show you're thinking carefully.",
+                "advanced": "Some informal register is present — shifting to academic discourse conventions would strengthen the essay's authority."
+            }[level]
+        elif word_count > 15:
+            tone_tip = {
+                "basic": "Your writing sounds really thoughtful — nice job using your school voice!",
+                "intermediate": "Your writing sounds thoughtful and academic — exactly the right tone for this kind of essay.",
+                "advanced": "Your academic register is well-calibrated for analytical writing."
+            }[level]
+        else:
+            tone_tip = {
+                "basic": "As you write more, try using your 'school voice' — the way you'd talk to your teacher.",
+                "intermediate": "As you expand your draft, aim for language that sounds like an essay rather than a text message.",
+                "advanced": "As you develop the draft, maintain formal academic register throughout."
+            }[level]
+        checks.append({"objective": "TONE", "status": "missing" if has_casual else ("present" if word_count > 15 else "weak"), "tip": tone_tip})
 
         present_count = sum(1 for c in checks if c["status"] in ("present", "weak"))
         overall_ready = present_count >= 3 and word_count >= 10
@@ -168,6 +242,7 @@ class SocraticMemory:
         self.max_coaching_turns = 15
         self.model_mode_used = set()  # Track which dimensions got MODEL examples
         self.previous_scores = {}  # For tracking dimension improvements
+        self.writing_level = "intermediate"  # Updated on each essay submission
     
     def add_essay(self, essay: str, scores: dict):
         self.essays.append(essay)
@@ -235,6 +310,10 @@ class SocraticEngine:
         self.current_phase = self.PHASE_READ
         self.validator = PreSubmissionValidator()
     
+    def _update_writing_level(self, essay: str):
+        """Update the detected writing level based on latest essay."""
+        self.memory.writing_level = self.validator._estimate_writing_level(essay)
+    
     def get_varied_coaching_opener(self, is_first: bool = False) -> str:
         """Get a varied coaching opener to avoid repetition."""
         if is_first:
@@ -301,6 +380,7 @@ class SocraticEngine:
     def generate_coaching(self, dimension: str, score_data: dict, essay: str) -> str:
         """Generate Socratic coaching question for a dimension."""
         system = COACHING_SYSTEM_PROMPT.format(
+            writing_level=self.memory.writing_level,
             dimension_name=VALUE_RUBRIC[dimension]['name'],
             current_score=score_data['score'],
             target_score=TARGET_SCORE,
@@ -362,6 +442,7 @@ Keep it specific and actionable - reference their actual words."""
     
     def process_initial_essay(self, essay: str) -> dict:
         """Process first essay submission."""
+        self._update_writing_level(essay)
         scores = self.score_essay(essay)
         self.memory.add_essay(essay, scores)
         
@@ -409,6 +490,7 @@ Keep it specific and actionable - reference their actual words."""
     
     def process_revision(self, essay: str) -> dict:
         """Process a revision submission."""
+        self._update_writing_level(essay)
         prev_scores = self.memory.get_latest_scores()
         new_scores = self.score_essay(essay)
         self.memory.add_essay(essay, new_scores)
@@ -577,8 +659,9 @@ Keep it specific and actionable - reference their actual words."""
         current_prompt = REFLECTION_PROMPTS[self.memory.reflection_turn]
         
         # Generate followup to their response
+        level_instruction = f"\n\nIMPORTANT: The student writes at a '{self.memory.writing_level}' level. Match your language to theirs — if they write simply, respond simply. If they write with sophistication, match that."
         followup = call_claude(
-            current_prompt['followup_system'],
+            current_prompt['followup_system'] + level_instruction,
             f"Student said: {response}",
             max_tokens=150
         )
