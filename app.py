@@ -199,15 +199,25 @@ At the end, you'll answer a few short questions about your experience. This isn'
         st.markdown(WRITING_PROMPT)
 
         st.markdown("")
-        st.markdown("""💡 *Tip: Don't overthink it — write your honest first draft. We'll work on improving it together.*""")
+        st.markdown("""
+<div style="font-size: 1.1rem; font-weight: 600; color: #065f46; background: #d1fae5; padding: 10px 16px; border-radius: 8px; margin: 8px 0;">
+💡 Don't overthink it — write your honest first draft. We'll work on improving it together.
+</div>
+        """, unsafe_allow_html=True)
         
-        st.markdown("""---
-**You have two coaches available:**
+        st.markdown("---")
+        
+        st.markdown("""
+<div style="font-size: 1.2rem; font-weight: 700; margin-bottom: 12px;">You have two coaches available:</div>
 
-🔍 **Check My Draft** — An informal quick-look that scans for the basics (position, evidence, reasoning, structure, tone) and shows you what's missing *before* you get scored. Use this as many times as you want to strengthen your draft.
+<div style="font-size: 1.1rem; line-height: 1.6; margin-bottom: 12px;">
+🔍 <strong style="font-size: 1.15rem;">Check My Draft</strong> — An informal quick-look that scans for the basics (position, evidence, reasoning, structure, tone) and shows you what's missing <em>before</em> you get scored. <strong>Use this as many times as you want</strong> to strengthen your draft.
+</div>
 
-📝 **Submit for Feedback** — Your formal submission. This scores your writing on 5 dimensions and starts a Socratic coaching session where I'll ask you questions to help you improve. You can still revise after submitting.
-""")
+<div style="font-size: 1.1rem; line-height: 1.6; margin-bottom: 12px;">
+📝 <strong style="font-size: 1.15rem;">Submit for Feedback</strong> — Your formal submission. This scores your writing on 5 dimensions and starts a Socratic coaching session where I'll ask you questions to help you improve. <strong>You can still revise after submitting.</strong>
+</div>
+        """, unsafe_allow_html=True)
 
         # Show previous pre-check notes if they exist
         if st.session_state.validation_result:
@@ -230,10 +240,21 @@ At the end, you'll answer a few short questions about your experience. This isn'
         )
         st.session_state.draft_text = essay
 
+        # Bigger buttons via CSS
+        st.markdown("""
+        <style>
+        div.stButton > button {
+            font-size: 1.1rem;
+            padding: 12px 24px;
+            font-weight: 600;
+        }
+        </style>
+        """, unsafe_allow_html=True)
+
         col1, col2 = st.columns(2)
         
         with col1:
-            if st.button("🔍 Check my draft first", type="secondary") and essay.strip():
+            if st.button("🔍 Check my draft first", type="secondary", use_container_width=True) and essay.strip():
                 with st.spinner("Checking your draft..."):
                     result = engine.validator.validate(essay.strip())
                     st.session_state.validation_result = result
@@ -241,7 +262,7 @@ At the end, you'll answer a few short questions about your experience. This isn'
                     st.rerun()
         
         with col2:
-            if st.button("Submit for feedback", type="primary") and essay.strip():
+            if st.button("📝 Submit for feedback", type="primary", use_container_width=True) and essay.strip():
                 st.session_state.draft_text = essay.strip()
                 result = engine.process_initial_essay(essay)
                 st.session_state.phase = result['phase']

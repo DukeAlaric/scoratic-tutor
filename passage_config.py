@@ -57,10 +57,7 @@ Your response should:
 - State a clear position
 - Use at least ONE specific detail from the passage to support your argument
 - Explain your reasoning
-- Use academic language appropriate for a school essay
-
-Tip: Don't overthink it — write your honest first draft. We'll work on improving it together.
-""".strip()
+- Use academic language appropriate for a school essay""".strip()
 
 # Roadmap prompt - only shown when Organization <= 2
 ROADMAP_PROMPT = """Before you revise, take a moment to plan. What are the 2-3 main ideas you want your essay to cover? You don't need to write full sentences - just name the ideas you want to include."""
