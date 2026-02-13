@@ -234,6 +234,9 @@ class PreSubmissionValidator:
             }[level]
         checks.append({"objective": "TONE", "status": tone_status, "tip": tone_tip})
 
+        # Grammar/mechanics check
+        mechanics_findings = self._check_mechanics(essay)
+
         present_count = sum(1 for c in checks if c["status"] in ("present", "weak"))
         overall_ready = present_count >= 3 and word_count >= 10
 
@@ -255,8 +258,94 @@ class PreSubmissionValidator:
             "checks": checks,
             "summary": summary,
             "word_count": word_count,
+            "mechanics": mechanics_findings,
             "used_ai": False
         }
+
+    def _check_mechanics(self, essay: str) -> list:
+        """Check for common grammar/mechanics issues. Returns list of findings."""
+        findings = []
+        lower = essay.lower()
+        
+        # Missing apostrophes in contractions
+        apostrophe_fixes = {
+            "dont ": "don't", "doesnt ": "doesn't", "wasnt ": "wasn't",
+            "isnt ": "isn't", "thats ": "that's", "im ": "I'm",
+            "wont ": "won't", "cant ": "can't", "didnt ": "didn't",
+            "wouldnt ": "wouldn't", "shouldnt ": "shouldn't", "couldnt ": "couldn't",
+            "hasnt ": "hasn't", "havent ": "haven't", "arent ": "aren't",
+            "werent ": "weren't", "its ": "it's",  # tricky — could be possessive
+            "ive ": "I've", "youre ": "you're", "theyre ": "they're",
+            "hes ": "he's", "shes ": "she's", "whats ": "what's",
+            "whos ": "who's", "theres ": "there's",
+        }
+        
+        found_apostrophe = []
+        for wrong, right in apostrophe_fixes.items():
+            # Special handling: "its" could be possessive, only flag if likely contraction
+            if wrong == "its " and ("its a " in lower or "its not" in lower or "its just" in lower or "its dumb" in lower or "its weird" in lower or "its gross" in lower):
+                found_apostrophe.append(f"its → it's")
+            elif wrong != "its " and wrong in lower:
+                found_apostrophe.append(f"{wrong.strip()} → {right}")
+        
+        if found_apostrophe:
+            findings.append({
+                "type": "apostrophes",
+                "label": "Missing apostrophes",
+                "items": found_apostrophe[:5]  # Cap at 5 to not overwhelm
+            })
+        
+        # Capitalization: sentences starting with lowercase
+        import re
+        sents = re.split(r'[.!?]\s+', essay)
+        uncapped = [s.strip()[:20] + "..." for s in sents if s.strip() and s.strip()[0].islower()]
+        if uncapped:
+            findings.append({
+                "type": "capitalization",
+                "label": "Sentences should start with a capital letter",
+                "items": uncapped[:3]
+            })
+        
+        # "i" not capitalized
+        if re.search(r'\bi\b', essay) and not re.search(r'\bI\b', essay):
+            findings.append({
+                "type": "capitalization",
+                "label": "The word 'I' should always be capitalized",
+                "items": []
+            })
+        
+        # Common misspellings
+        spelling_fixes = {
+            "thier": "their", "alot": "a lot", "becuz": "because", "cuz": "because",
+            "definately": "definitely", "seperate": "separate", "occured": "occurred",
+            "recieve": "receive", "untill": "until", "wich": "which",
+            "wierd": "weird", "freind": "friend", "peice": "piece",
+            "beleive": "believe", "arguement": "argument",
+        }
+        
+        found_spelling = []
+        for wrong, right in spelling_fixes.items():
+            if wrong in lower:
+                found_spelling.append(f"{wrong} → {right}")
+        
+        if found_spelling:
+            findings.append({
+                "type": "spelling",
+                "label": "Possible spelling fixes",
+                "items": found_spelling[:5]
+            })
+        
+        # Run-on sentences (very long sentences without punctuation)
+        raw_sentences = re.split(r'[.!?]', essay)
+        run_ons = [s.strip()[:30] + "..." for s in raw_sentences if len(s.split()) > 35]
+        if run_ons:
+            findings.append({
+                "type": "run_on",
+                "label": "Some sentences might be too long — could you break them up?",
+                "items": run_ons[:2]
+            })
+        
+        return findings
 
 
 def call_claude(system_prompt: str, user_message: str, max_tokens: int = 500) -> str:

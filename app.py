@@ -151,7 +151,7 @@ def main():
         st.markdown("""
 <div class="coach-title">🔍 The Draft Coach</div>
 <div class="coach-desc">
-Helps you <em>before</em> you're scored. It's an informal check that scans your writing for the basics — do you have a clear position? Did you use evidence from the passage? Is your reasoning showing? Think of it as a friendly second pair of eyes that points out what's working and what might need attention.
+Helps you <em>before</em> you're scored. It checks your writing for the basics — do you have a clear position? Did you use evidence from the passage? Is your reasoning showing? It also catches <strong>grammar and spelling</strong> issues like missing apostrophes and misspelled words. Think of it as a friendly second pair of eyes.
 </div>
         """, unsafe_allow_html=True)
         
@@ -332,12 +332,26 @@ At the end, you'll answer a few short questions about your experience. This isn'
                 if tip:
                     st.markdown(f"   *{tip}*")
             
+            # Grammar/mechanics section
+            mechanics = result.get('mechanics', [])
+            if mechanics:
+                st.markdown("---")
+                st.markdown("### 📝 Grammar & Mechanics Check")
+                for finding in mechanics:
+                    label = finding.get("label", "")
+                    items = finding.get("items", [])
+                    if items:
+                        items_str = ", ".join(f"**{item}**" for item in items)
+                        st.markdown(f"🔤 {label}: {items_str}")
+                    else:
+                        st.markdown(f"🔤 {label}")
+            
             st.markdown("---")
             
             # Editable draft workspace
             st.markdown("""
-<div style="font-size: 1.15rem; font-weight: 600; margin-bottom: 8px;">
-✏️ Your draft — edit it right here based on the feedback above:
+<div style="font-size: 1.3rem; font-weight: 700; text-align: center; background: #dbeafe; padding: 14px 20px; border-radius: 10px; margin-bottom: 12px;">
+✏️ Now it's your turn! Edit your draft below using the feedback above:
 </div>
             """, unsafe_allow_html=True)
             
