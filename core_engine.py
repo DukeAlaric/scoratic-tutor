@@ -487,8 +487,8 @@ def run_quality_gate(text, metrics, scene_type="reflective"):
             issues.append(f"[CONTAMINATION] Smoothing: '{sw}' x{count}")
             score += count * 2
 
-    # --- Dialogue tags (only if chapter has dialogue) ---
-    if metrics["_has_dialogue"]:
+    # --- Dialogue tags (only if chapter has meaningful dialogue) ---
+    if metrics["_has_dialogue"] and len(metrics["_all_tags"]) >= 3:
         all_tags = metrics["_all_tags"]
         creative = [t for t in all_tags if t.lower() not in
                     ('said', 'asked', 'replied', 'whispered', 'shouted',
@@ -571,6 +571,14 @@ def compute_voice_delta(metrics, baseline_metrics, scene_type="reflective"):
                              "severity": "n/a (no dialogue)"}
             continue
 
+        # RULE 2b: Said ratio with tiny sample (1-2 tags) is unreliable
+        if metric == "said_ratio_pct":
+            num_tags = len(metrics.get("_all_tags", []))
+            if num_tags < 3:
+                delta[metric] = {"baseline": baseline_val, "chapter": chapter_val,
+                                 "severity": f"n/a ({num_tags} tags)"}
+                continue
+
         # RULE 3: Scene-type-aware dialogue ratio
         if metric == "dialogue_ratio_pct":
             if target_range[0] <= chapter_val <= target_range[1]:
@@ -638,7 +646,7 @@ CRITICAL RULES:
 - Write ONLY chapter prose. No headers, no commentary, no "Chapter X:" label.
 - Match the Voice Guide's sentence rhythm.
 - Follow ALL rules in the Style Brief exactly.
-- "said" for 70%+ of dialogue tags. Action beats for rest. No creative tags.
+- "said" for 70%+ of dialogue tags. Action beats for the rest. No creative tags.
 - NO em-dashes. Use periods and fragments instead.
 - NO smoothing words (however, moreover, furthermore, nevertheless, indeed, certainly, naturally, obviously).
 - NO purple prose. Concrete sensory details only.
@@ -653,11 +661,17 @@ INTERIORITY — This is critical for voice match:
 - Blend them in: "I knew Daddy would be mad" not "I thought to myself that Daddy would be mad."
 - More interiority in reflective/quiet moments, less during pure action.
 
-ADVERBS — Use them sparingly but naturally:
-- Target: about {target_adverb:.0f} per 1,000 words. Not zero.
-- Good adverbs earn their place: "barely", "mostly", "nearly", "quietly"
-- Bad adverbs modify dialogue tags: "said softly" — don't do this.
-- A chapter with zero adverbs sounds mechanical. A few feel human.
+ADVERBS — IMPORTANT: Include {target_adverb:.0f} adverbs per 1,000 words. NOT ZERO.
+- You MUST include adverbs. A chapter with zero adverbs fails quality checks.
+- Good: "barely breathing", "mostly quiet", "nearly tripped", "already dark", "hardly any"
+- Bad: adverbs on dialogue tags ("said quietly"). Don't do that.
+- Scatter them naturally through the prose. Example: "The water was barely ankle deep."
+
+QUESTIONS AND EXCLAMATIONS — Include both:
+- Include ~{baseline_metrics.get('question_per_1k', 6):.0f} question marks per 1,000 words.
+- Internal questions are the character's voice: "Was it getting closer?" "How far to the road?"
+- Include ~{baseline_metrics.get('exclamation_per_1k', 2):.0f} exclamation marks per 1,000 words.
+- Use for genuine shock or emphasis, not generic excitement.
 
 PARAGRAPHING:
 - Use blank lines between paragraphs.
@@ -705,11 +719,18 @@ INTERIORITY — Preserve and enhance:
 - Target: ~{target_interiority:.0f}% of sentences should have a thought verb.
 - "I knew" / "I figured" / "I wondered" are the character's voice. Don't cut them.
 
-ADVERBS — Keep the good ones:
-- Do NOT strip all adverbs. Target ~{target_adverb:.0f} per 1,000 words.
-- Cut adverbs that modify dialogue tags ("said quietly").
-- Keep adverbs that add meaning: "barely breathing", "mostly quiet", "nearly dark".
-- A few well-placed adverbs sound natural. Zero sounds robotic.
+ADVERBS — MAINTAIN, do not strip:
+- The draft should contain adverbs. KEEP THEM. Target ~{target_adverb:.0f} per 1,000 words.
+- Only remove adverbs that modify dialogue tags ("said quietly" → "said").
+- DO NOT remove adverbs from narration. "barely", "mostly", "nearly", "hardly" stay.
+- If the draft has zero adverbs, ADD some: "barely visible", "mostly dark", "nearly fell".
+
+QUESTIONS AND EXCLAMATIONS — Preserve and add:
+- Keep all ? and ! from the draft.
+- Target ~{baseline_metrics.get('question_per_1k', 6):.0f} question marks per 1,000 words.
+- Internal character questions: "Was it closer now?" "Could I make it to the road?"
+- Target ~{baseline_metrics.get('exclamation_per_1k', 2):.0f} exclamation marks per 1,000 words.
+- If the draft is missing these, add 2-3 internal questions and 1-2 exclamations.
 
 PARAGRAPHING — Critical:
 - Separate every paragraph with a blank line.
@@ -781,7 +802,7 @@ Output ONLY the rewritten chapter. No commentary."""
         "voice_delta": voice_delta,
         "hotspots": hotspots,
         "manifest": {
-            "pipeline_version": "web-v3",
+            "pipeline_version": "web-v3.1",
             "scene_type": scene_type,
             "stages": ["draft", "rewrite", "em_dash_removal", "smoothing_removal",
                        "opener_fix", "impact_isolation", "paragraph_split",
