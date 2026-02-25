@@ -1,832 +1,805 @@
 """
-Socratic Writing Tutor - Core Engine v1.2
+engine/pipeline.py — Full production pipeline for the Difference Engine web app.
 
-CHANGES FROM v1.1:
-- Varied coaching openers (get_varied_coaching_opener)
-- Conditional planning phase (only when Organization <= 2)
-- Micro-celebrations for partial progress
-- Quote Sandwich prompt for stuck Evidence Use
-- Journey-aware celebration messages
-- Intent-probing questions in coaching
-- Improved first-try and improvement analysis
+Stages:
+  2. Draft generation (Claude API)
+  3. Corrective rewrite (Claude API)
+  4.1 Em-dash mechanical removal
+  4.2 Smoothing word mechanical removal
+  4.3 Opener fix (FIXED: no more word mangling)
+  4.4 Impact paragraph isolation
+  4.5 Paragraph splitter (break long paragraphs)
+  5. Quality gate (full scoring)
+  6. Voice delta (style-rule-aware)
 """
 
-import json
-import random
+import re
+import math
 import anthropic
-from passage_config import (
-    PASSAGE_TEXT, PASSAGE_TITLE, WRITING_PROMPT, VALUE_RUBRIC,
-    DIMENSION_ORDER, TARGET_SCORE, SCORING_SYSTEM_PROMPT,
-    COACHING_SYSTEM_PROMPT, MODEL_EXAMPLE_PROMPT, REFLECTION_PROMPTS,
-    EDGE_CASE_RULES, RESCORE_FRAMING, ROADMAP_PROMPT, 
-    COACHING_OPENERS, COACHING_OPENERS_FIRST_TRY, QUOTE_SANDWICH_PROMPT,
-    CELEBRATION_MESSAGES, MICRO_CELEBRATION_TEMPLATES,
-    PRE_VALIDATION_SYSTEM_PROMPT,
-    get_rubric_text
-)
+import streamlit as st
 
 
-class PreSubmissionValidator:
-    """Grammarly-style pre-check that evaluates student input BEFORE formal scoring."""
+def get_anthropic_client():
+    return anthropic.Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
 
-    EVIDENCE_MARKERS = [
-        "1962", "panopoulos", "sam", "2017", "iceland", "2019", "yougov",
-        "12 percent", "hawaiian", "ontario", "canada", "tagine", "moroccan"
-    ]
-    POSITION_WORDS = [
-        "i believe", "i think", "i argue", "i contend", "in my opinion",
-        "my position", "should", "must", "belongs", "doesn't belong",
-        "no place", "acceptable", "unacceptable"
-    ]
-    REASONING_WORDS = [
-        "because", "therefore", "this means", "this shows", "which demonstrates",
-        "as a result", "consequently", "this suggests", "the reason", "which is why"
-    ]
-    CASUAL_MARKERS = [
-        "lol", "tbh", "ngl", "imo", "bruh", "like,", "gonna", "wanna",
-        "kinda", "omg", "smh", "fr fr", "super gross", "it's just"
-    ]
 
-    def validate(self, essay: str) -> dict:
-        """Run pre-submission validation. Tries AI first, falls back to heuristics."""
-        try:
-            import os
-            if os.environ.get("ANTHROPIC_API_KEY"):
-                result = self._ai_check(essay)
-                # Always add mechanics check, even for AI results
-                result["mechanics"] = self._check_mechanics(essay)
-                return result
-        except Exception:
-            pass
-        return self._heuristic_check(essay)
+# ---------------------------------------------------------------------------
+# Style rules that override baseline comparison
+# ---------------------------------------------------------------------------
 
-    def _ai_check(self, essay: str) -> dict:
-        prompt = PRE_VALIDATION_SYSTEM_PROMPT.format(
-            passage_text=PASSAGE_TEXT, writing_prompt=WRITING_PROMPT
+STYLE_OVERRIDES = {
+    "em_dash_per_1k": 0,
+    "semicolon_per_1k": 0,
+    "smoothing_per_1k": 0,
+}
+
+DIALOGUE_DEPENDENT_METRICS = {"said_ratio_pct", "dialogue_ratio_pct"}
+
+SMOOTHING_WORDS = [
+    'however', 'moreover', 'furthermore', 'nevertheless', 'nonetheless',
+    'consequently', 'therefore', 'indeed', 'certainly', 'naturally',
+    'obviously', 'of course', 'in fact', 'as a matter of fact',
+    'it is worth noting', 'it should be noted', 'needless to say'
+]
+
+SCENE_TYPE_DIALOGUE_TARGETS = {
+    "reflective": (0, 15),
+    "social_confrontation": (45, 85),
+    "action": (0, 40),
+    "intimate": (30, 65),
+    "procedural": (5, 30),
+}
+
+NON_ADVERBS = {'only', 'early', 'family', 'likely', 'belly', 'holy', 'ugly',
+               'lonely', 'friendly', 'elderly', 'daily', 'july', 'fly', 'reply',
+               'supply', 'ally', 'apply', 'rely', 'sally', 'billy', 'molly',
+               'emily', 'lily', 'fully', 'really', 'finally'}
+
+COMMON_STARTERS = {'the', 'a', 'an', 'it', 'he', 'she', 'they', 'we', 'i',
+                   'this', 'that', 'there', 'when', 'where', 'what', 'how',
+                   'but', 'and', 'so', 'if', 'as', 'in', 'on', 'at', 'for',
+                   'to', 'his', 'her', 'my', 'our', 'its', 'no', 'not', 'all',
+                   'one', 'two', 'some', 'any', 'every', 'each', 'after',
+                   'before', 'now', 'then', 'just', 'even', 'still', 'with',
+                   'from', 'by', 'up', 'out', 'down', 'back', 'over', 'through'}
+
+
+# ---------------------------------------------------------------------------
+# STAGE 1: Baseline
+# ---------------------------------------------------------------------------
+
+def build_baseline(corpus_text):
+    """Analyze corpus and return 14 voice metrics."""
+    words = corpus_text.split()
+    word_count = len(words)
+    sentences = [s.strip() for s in re.split(r'[.!?]+', corpus_text) if s.strip()]
+    num_sentences = max(len(sentences), 1)
+    avg_sl = word_count / num_sentences
+    paragraphs = [p.strip() for p in corpus_text.split('\n\n') if p.strip()]
+    fragments = sum(1 for s in sentences if len(s.split()) < 5)
+    em_dashes = corpus_text.count('\u2014') + corpus_text.count('--')
+    dialogue_lines = len(re.findall(r'"[^"]*"', corpus_text))
+
+    lengths = [len(s.split()) for s in sentences]
+    mean_len = sum(lengths) / max(len(lengths), 1)
+    variance = sum((l - mean_len) ** 2 for l in lengths) / max(len(lengths), 1)
+    stdev = variance ** 0.5
+
+    adverbs = sum(1 for w in words if w.lower().endswith('ly') and len(w) > 3
+                  and w.lower() not in NON_ADVERBS)
+
+    text_lower = corpus_text.lower()
+    smoothing_count = sum(text_lower.count(w) for w in SMOOTHING_WORDS)
+
+    all_tags = re.findall(
+        r'\b(said|asked|replied|whispered|shouted|muttered|called|cried|answered|'
+        r'growled|hissed|exclaimed|declared|snapped|barked|sighed|groaned)\b',
+        corpus_text, re.IGNORECASE)
+    said_count = sum(1 for t in all_tags if t.lower() == 'said')
+    said_ratio = (said_count / max(len(all_tags), 1)) * 100
+
+    sentence_starts = [s.split()[0] if s.split() else '' for s in sentences]
+    name_openers = sum(1 for w in sentence_starts
+                       if w and w[0].isupper() and len(w) > 1
+                       and w.lower() not in COMMON_STARTERS)
+    name_opener_pct = (name_openers / num_sentences) * 100
+
+    thought_verbs = len(re.findall(
+        r'\b(thought|wondered|realized|knew|felt|remembered|imagined|hoped|'
+        r'feared|wished|believed|supposed|figured|guessed)\b',
+        corpus_text, re.IGNORECASE))
+    interiority_pct = (thought_verbs / num_sentences) * 100
+
+    return {
+        "avg_sentence_length": round(avg_sl, 1),
+        "sentence_length_stdev": round(stdev, 1),
+        "fragment_pct": round((fragments / num_sentences) * 100, 1),
+        "dialogue_ratio_pct": round((dialogue_lines / max(len(corpus_text.split('\n')), 1)) * 100, 1),
+        "avg_paragraph_length": round(word_count / max(len(paragraphs), 1), 1),
+        "em_dash_per_1k": round((em_dashes / max(word_count, 1)) * 1000, 1),
+        "semicolon_per_1k": round((corpus_text.count(';') / max(word_count, 1)) * 1000, 1),
+        "exclamation_per_1k": round((corpus_text.count('!') / max(word_count, 1)) * 1000, 1),
+        "question_per_1k": round((corpus_text.count('?') / max(word_count, 1)) * 1000, 1),
+        "interiority_pct": round(interiority_pct, 1),
+        "adverb_per_1k": round((adverbs / max(word_count, 1)) * 1000, 1),
+        "smoothing_per_1k": round((smoothing_count / max(word_count, 1)) * 1000, 1),
+        "name_opener_pct": round(name_opener_pct, 1),
+        "said_ratio_pct": round(said_ratio, 1),
+        "corpus_word_count": word_count
+    }
+
+
+# ---------------------------------------------------------------------------
+# STAGE 4.1: Em-dash Removal
+# ---------------------------------------------------------------------------
+
+def remove_em_dashes(text):
+    count = 0
+    def replace_em(match):
+        nonlocal count
+        before = match.group(1)
+        after = match.group(2)
+        count += 1
+        if after and after[0].islower():
+            return f"{before}. {after[0].upper()}{after[1:]}"
+        return f"{before}. {after}"
+    text = re.sub(r'(\w+)\s*\u2014\s*(\w+)', replace_em, text)
+    text = re.sub(r'(\w+)\s*--\s*(\w+)', replace_em, text)
+    remaining = text.count('\u2014') + text.count('--')
+    text = text.replace('\u2014', '.').replace('--', '.')
+    count += remaining
+    return text, count
+
+
+# ---------------------------------------------------------------------------
+# STAGE 4.2: Smoothing Removal
+# ---------------------------------------------------------------------------
+
+def remove_smoothing_words(text):
+    count = 0
+    for word in SMOOTHING_WORDS:
+        text_before = text
+        text = re.sub(
+            r'(?i)((?:^|\.\s+))' + re.escape(word) + r',?\s*(\w)',
+            lambda m: m.group(1) + m.group(2).upper(),
+            text, flags=re.MULTILINE
         )
-        response = call_claude(prompt, f"Student draft:\n\n{essay}", max_tokens=500)
-        cleaned = response.strip()
-        if cleaned.startswith("```"):
-            cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else cleaned[3:]
-        if cleaned.endswith("```"):
-            cleaned = cleaned[:-3]
-        start = cleaned.find('{')
-        end = cleaned.rfind('}') + 1
-        if start >= 0 and end > start:
-            result = json.loads(cleaned[start:end])
-            result["word_count"] = len(essay.split())
-            result["used_ai"] = True
-            return result
-        raise ValueError("Could not parse AI response")
-
-    def _estimate_writing_level(self, essay: str) -> str:
-        """Rough estimate: 'basic', 'intermediate', or 'advanced'."""
-        words = essay.split()
-        avg_word_len = sum(len(w) for w in words) / max(len(words), 1)
-        long_words = sum(1 for w in words if len(w) > 7)
-        long_word_pct = long_words / max(len(words), 1)
-        has_casual = any(c in essay.lower() for c in self.CASUAL_MARKERS)
-        
-        if avg_word_len < 4.5 or has_casual or long_word_pct < 0.05:
-            return "basic"
-        elif avg_word_len > 5.2 or long_word_pct > 0.20:
-            return "advanced"
-        return "intermediate"
-
-    def _heuristic_check(self, essay: str) -> dict:
-        lower = essay.lower()
-        words = essay.split()
-        sentences = [s.strip() for s in essay.replace("!", ".").replace("?", ".").split(".") if s.strip()]
-        word_count = len(words)
-        level = self._estimate_writing_level(essay)
-        checks = []
-
-        # TIPS adapted by writing level
-        has_position = any(p in lower for p in self.POSITION_WORDS)
-        if has_position:
-            pos_tip = {
-                "basic": "Good job — you told us what you think! That's exactly how to start. 👍",
-                "intermediate": "Nice work — your position comes through clearly and gives your essay direction.",
-                "advanced": "Strong opening stance — your position anchors the essay and signals your argument."
-            }[level]
-        else:
-            pos_tip = {
-                "basic": "If someone asked you 'so what do YOU think about this?' — what would you say? Can you put that right at the beginning so your reader knows?",
-                "intermediate": "What's your actual opinion on this topic? If a friend asked you to pick a side, what would you say — and how could you open with that?",
-                "advanced": "What specific claim are you making? How might an explicit thesis statement frame and sharpen your analysis?"
-            }[level]
-        checks.append({"objective": "POSITION", "status": "present" if has_position else ("weak" if word_count > 20 else "missing"), "tip": pos_tip})
-
-        # Evidence: check presence AND whether it's integrated or just name-dropped
-        found = [m for m in self.EVIDENCE_MARKERS if m in lower]
-        has_explanation_near_evidence = any(
-            r in lower for r in ["this shows", "this means", "which proves", "this is because", "this demonstrates", "for example"]
-        )
-        if len(found) >= 2 and has_explanation_near_evidence:
-            ev_status = "present"
-        elif len(found) >= 1:
-            ev_status = "weak"  # Found evidence but not well integrated
-        else:
-            ev_status = "missing"
-        
-        if ev_status == "present":
-            ev_tip = {
-                "basic": "You used facts from the passage AND explained why they matter — that's really strong! 🌟",
-                "intermediate": "Great job — you're not just dropping facts, you're connecting them to your argument.",
-                "advanced": "Effective evidence integration — your passage details are well-connected to your analytical claims."
-            }[level]
-        elif ev_status == "weak":
-            ev_tip = {
-                "basic": "You mentioned facts from the passage — nice start! But why did you pick those facts? How do they help prove YOUR point?",
-                "intermediate": "You've got evidence in there, but how does each fact actually connect to your argument? Why do these details matter?",
-                "advanced": "Evidence is present but not fully integrated. How might you explicitly connect each detail to your thesis?"
-            }[level]
-        else:
-            ev_tip = {
-                "basic": "What's one thing from the passage that stuck with you? What if you told your reader about it — do you think it would help prove your point?",
-                "intermediate": "If someone disagreed with you, what fact from the passage could you point to that supports your side?",
-                "advanced": "Your argument rests on assertion alone — which passage details could serve as evidence?"
-            }[level]
-        checks.append({"objective": "EVIDENCE", "status": ev_status, "tip": ev_tip})
-
-        # Reasoning: check for real reasoning, not circular logic
-        has_reasoning = any(r in lower for r in self.REASONING_WORDS)
-        circular_patterns = ["because it's gross", "because its gross", "because i don't like", "because i dont like",
-                           "because it's bad", "because its bad", "because it's weird", "because its weird",
-                           "because it's dumb", "because its dumb"]
-        is_circular = any(c in lower for c in circular_patterns)
-        
-        if has_reasoning and not is_circular:
-            reason_status = "present"
-            reason_tip = {
-                "basic": "You explained WHY with a real reason — not just 'because I said so.' That's strong thinking! 💪",
-                "intermediate": "You're explaining your thinking with real logic — that's what makes an argument convincing.",
-                "advanced": "Your analytical reasoning effectively connects evidence to claims."
-            }[level]
-        elif has_reasoning and is_circular:
-            reason_status = "weak"
-            reason_tip = {
-                "basic": "You used 'because' — good! But saying 'because it's gross' just repeats your opinion. Can you dig deeper — WHY doesn't it work? What specifically happens?",
-                "intermediate": "Your reasoning restates your opinion rather than explaining it. What's the deeper logic — why SPECIFICALLY does your position make sense?",
-                "advanced": "Your reasoning is circular — it restates rather than supports your claim. What underlying logic connects your evidence to your conclusion?"
-            }[level]
-        else:
-            reason_status = "weak" if word_count > 30 else "missing"
-            reason_tip = {
-                "basic": "You told us what you think — but WHY do you think that? If a friend asked 'how come?' what would you tell them?",
-                "intermediate": "You've stated your position — but why should your reader believe you? What's the reasoning behind your opinion?",
-                "advanced": "What logical connection links your evidence to your thesis? How does your reasoning move beyond assertion to analysis?"
-            }[level]
-        checks.append({"objective": "REASONING", "status": reason_status, "tip": reason_tip})
-
-        if len(sentences) >= 4:
-            struct_tip = {
-                "basic": "You wrote several sentences and that makes it easy to follow your ideas! Nice work! 📝",
-                "intermediate": "Your ideas flow across multiple sentences — that helps your reader follow your thinking step by step.",
-                "advanced": "Solid structural development — multiple ideas are clearly articulated."
-            }[level]
-        elif len(sentences) >= 2:
-            struct_tip = {
-                "basic": "You've got a couple of ideas started — what else could you say? Is there more you want your reader to know?",
-                "intermediate": "You've got a couple of ideas going — what else would help your reader fully understand your argument?",
-                "advanced": "How might you expand your argument to more fully develop each analytical point?"
-            }[level]
-        else:
-            struct_tip = {
-                "basic": "This is a good start but pretty short — what else do you want to say about this topic? I bet you have more ideas in there!",
-                "intermediate": "Your draft is quite short — what other thoughts do you have? What else would help your reader understand your full position?",
-                "advanced": "How might you develop this into a sustained argument? What additional points could support your thesis?"
-            }[level]
-        checks.append({"objective": "STRUCTURE", "status": "present" if len(sentences) >= 4 else ("weak" if len(sentences) >= 2 else "missing"), "tip": struct_tip})
-
-        has_casual = any(c in lower for c in self.CASUAL_MARKERS)
-        # Check for basic mechanics issues (missing apostrophes, common misspellings)
-        mechanics_issues = []
-        if "dont " in lower or "doesnt " in lower or "wasnt " in lower or "isnt " in lower or "thats " in lower or "im " in lower or "wont " in lower or "cant " in lower or "didnt " in lower:
-            mechanics_issues.append("apostrophes")
-        if any(w in lower for w in ["alot", "becuz", "cuz", "ur", "u ", "2 ", "4 "]):
-            mechanics_issues.append("spelling")
-        
-        if has_casual:
-            tone_status = "missing"
-            tone_tip = {
-                "basic": "I can tell you have strong feelings! If you were explaining this to your teacher instead of your friend, how would you say it differently?",
-                "intermediate": "Your passion comes through — how might you express those same strong feelings using language that sounds more like an essay?",
-                "advanced": "How might you convey the same conviction using academic register? Where does informal language undercut your argument's authority?"
-            }[level]
-        elif mechanics_issues:
-            tone_status = "weak"
-            tone_tip = {
-                "basic": "Your ideas are good! Can you read through it one more time and check for things like missing apostrophes (dont → don't) and spelling? Those little things matter!",
-                "intermediate": "Your tone is heading in the right direction, but there are some mechanics to clean up — missing apostrophes, spelling. How might a final proofread strengthen this?",
-                "advanced": "Your register is appropriate but mechanical errors (missing apostrophes, spelling) undermine the professionalism. Where might a careful proofread tighten this up?"
-            }[level]
-        elif word_count > 15:
-            tone_status = "present"
-            tone_tip = {
-                "basic": "Your writing sounds really thoughtful — nice job using your school voice! 👍",
-                "intermediate": "Your writing sounds thoughtful and academic — exactly the right tone for this kind of essay.",
-                "advanced": "Your academic register is well-calibrated for analytical writing."
-            }[level]
-        else:
-            tone_status = "weak"
-            tone_tip = {
-                "basic": "As you write more, think about this: how would you say this if you were presenting it to your class?",
-                "intermediate": "As you expand your draft, how can you make sure it sounds like a polished essay rather than a quick message?",
-                "advanced": "As you develop the draft, how will you maintain formal academic register throughout?"
-            }[level]
-        checks.append({"objective": "TONE", "status": tone_status, "tip": tone_tip})
-
-        # Grammar/mechanics check
-        mechanics_findings = self._check_mechanics(essay)
-
-        present_count = sum(1 for c in checks if c["status"] == "present")
-        weak_count = sum(1 for c in checks if c["status"] == "weak")
-        missing_count = sum(1 for c in checks if c["status"] == "missing")
-        # Ready = at least 3 truly good, no missing, and enough words
-        overall_ready = present_count >= 3 and missing_count == 0 and word_count >= 20
-
-        present = [c["objective"] for c in checks if c["status"] == "present"]
-        missing = [c["objective"] for c in checks if c["status"] == "missing"]
-        if word_count < 10:
-            summary = "Your draft is very short — try expanding your ideas before submitting."
-        elif len(missing) >= 3:
-            summary = "You've started — now try adding a clear position, evidence, and analysis."
-        elif len(present) >= 4:
-            summary = "Looking strong! You've covered most of the key elements."
-        elif present:
-            summary = f"Good start with your {present[0].lower()}. Consider strengthening the other areas."
-        else:
-            summary = "Review the suggestions below to strengthen your draft."
-
-        return {
-            "overall_ready": overall_ready,
-            "checks": checks,
-            "summary": summary,
-            "word_count": word_count,
-            "mechanics": mechanics_findings,
-            "used_ai": False
-        }
-
-    def _check_mechanics(self, essay: str) -> list:
-        """Check for common grammar/mechanics issues. Returns list of findings."""
-        findings = []
-        lower = essay.lower()
-        
-        # Missing apostrophes in contractions
-        apostrophe_fixes = {
-            "dont ": "don't", "doesnt ": "doesn't", "wasnt ": "wasn't",
-            "isnt ": "isn't", "thats ": "that's", "im ": "I'm",
-            "wont ": "won't", "cant ": "can't", "didnt ": "didn't",
-            "wouldnt ": "wouldn't", "shouldnt ": "shouldn't", "couldnt ": "couldn't",
-            "hasnt ": "hasn't", "havent ": "haven't", "arent ": "aren't",
-            "werent ": "weren't", "its ": "it's",  # tricky — could be possessive
-            "ive ": "I've", "youre ": "you're", "theyre ": "they're",
-            "hes ": "he's", "shes ": "she's", "whats ": "what's",
-            "whos ": "who's", "theres ": "there's",
-        }
-        
-        found_apostrophe = []
-        for wrong, right in apostrophe_fixes.items():
-            # Special handling: "its" could be possessive, only flag if likely contraction
-            if wrong == "its " and ("its a " in lower or "its not" in lower or "its just" in lower or "its dumb" in lower or "its weird" in lower or "its gross" in lower):
-                found_apostrophe.append(f"its → it's")
-            elif wrong != "its " and wrong in lower:
-                found_apostrophe.append(f"{wrong.strip()} → {right}")
-        
-        if found_apostrophe:
-            findings.append({
-                "type": "apostrophes",
-                "label": "Missing apostrophes",
-                "items": found_apostrophe[:5]  # Cap at 5 to not overwhelm
-            })
-        
-        # Capitalization: sentences starting with lowercase
-        import re
-        sents = re.split(r'[.!?]\s+', essay)
-        uncapped = [s.strip()[:20] + "..." for s in sents if s.strip() and s.strip()[0].islower()]
-        if uncapped:
-            findings.append({
-                "type": "capitalization",
-                "label": "Sentences should start with a capital letter",
-                "items": uncapped[:3]
-            })
-        
-        # "i" not capitalized
-        if re.search(r'\bi\b', essay) and not re.search(r'\bI\b', essay):
-            findings.append({
-                "type": "capitalization",
-                "label": "The word 'I' should always be capitalized",
-                "items": []
-            })
-        
-        # Common misspellings
-        spelling_fixes = {
-            "thier": "their", "alot": "a lot", "becuz": "because", "cuz": "because",
-            "definately": "definitely", "seperate": "separate", "occured": "occurred",
-            "recieve": "receive", "untill": "until", "wich": "which",
-            "wierd": "weird", "freind": "friend", "peice": "piece",
-            "beleive": "believe", "arguement": "argument",
-        }
-        
-        found_spelling = []
-        for wrong, right in spelling_fixes.items():
-            if wrong in lower:
-                found_spelling.append(f"{wrong} → {right}")
-        
-        if found_spelling:
-            findings.append({
-                "type": "spelling",
-                "label": "Possible spelling fixes",
-                "items": found_spelling[:5]
-            })
-        
-        # Run-on sentences (very long sentences without punctuation)
-        raw_sentences = re.split(r'[.!?]', essay)
-        run_ons = [s.strip()[:30] + "..." for s in raw_sentences if len(s.split()) > 35]
-        if run_ons:
-            findings.append({
-                "type": "run_on",
-                "label": "Some sentences might be too long — could you break them up?",
-                "items": run_ons[:2]
-            })
-        
-        return findings
+        text = re.sub(r'(?i),?\s*' + re.escape(word) + r',?\s*', ' ', text)
+        if text != text_before:
+            count += 1
+    text = re.sub(r'  +', ' ', text)
+    return text, count
 
 
-def call_claude(system_prompt: str, user_message: str, max_tokens: int = 500) -> str:
-    """Make API call to Claude."""
-    client = anthropic.Anthropic()
-    message = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=max_tokens,
-        system=system_prompt,
-        messages=[{"role": "user", "content": user_message}]
-    )
-    return message.content[0].text
+# ---------------------------------------------------------------------------
+# STAGE 4.3: Opener Fix (FIXED — no more word mangling)
+# ---------------------------------------------------------------------------
+
+def fix_name_openers(text, target_pct=45.0):
+    """
+    Reduce name-opener percentage. ONLY operates on sentences where a safe
+    prepositional phrase can be cleanly extracted and moved to the front.
+    Uses word-index slicing instead of character-index slicing to prevent
+    the concatenation bug (e.g. "sitsof", "worksin").
+    """
+    sentences = re.split(r'(?<=[.!?])\s+', text)
+    if not sentences:
+        return text, 0, 0
+
+    name_opener_indices = []
+    for i, s in enumerate(sentences):
+        words = s.split()
+        if words and words[0][0:1].isupper() and len(words[0]) > 1:
+            if words[0].lower() not in COMMON_STARTERS:
+                name_opener_indices.append(i)
+
+    current_pct = (len(name_opener_indices) / max(len(sentences), 1)) * 100
+    if current_pct <= target_pct:
+        return text, round(current_pct, 1), 0
+
+    target_count = int(len(sentences) * (target_pct / 100))
+    to_fix = len(name_opener_indices) - target_count
+    fixes_made = 0
+
+    # Prepositions we look for (must be followed by a noun phrase)
+    prep_patterns = [
+        'in the', 'on the', 'at the', 'from the', 'by the',
+        'through the', 'across the', 'behind the', 'under the',
+        'with the', 'near the', 'past the', 'along the',
+    ]
+
+    for idx in name_opener_indices[2:]:  # Skip first two
+        if fixes_made >= to_fix:
+            break
+        s = sentences[idx]
+        words = s.split()
+        if len(words) < 6:
+            continue
+
+        # Find a prepositional phrase by word position (not character position)
+        best_prep = None
+        best_prep_start = None
+        for prep in prep_patterns:
+            prep_words = prep.split()
+            prep_len = len(prep_words)
+            # Search for prep phrase starting after word 2 (don't grab from sentence start)
+            for wi in range(2, len(words) - prep_len - 1):
+                candidate = ' '.join(words[wi:wi + prep_len]).lower()
+                if candidate == prep:
+                    best_prep_start = wi
+                    best_prep = prep
+                    break
+            if best_prep:
+                break
+
+        if not best_prep or best_prep_start is None:
+            continue
+
+        # Extract the phrase: prep + up to 2 more words (the noun phrase)
+        prep_word_count = len(best_prep.split())
+        # Grab prep + next 2 words as the phrase to move
+        phrase_end = min(best_prep_start + prep_word_count + 2, len(words))
+        phrase_words = words[best_prep_start:phrase_end]
+
+        # Strip trailing punctuation from phrase
+        if phrase_words:
+            phrase_words[-1] = phrase_words[-1].rstrip('.,;:')
+
+        # Build the new sentence:
+        # [phrase], [everything before phrase] [everything after phrase].
+        before_words = words[:best_prep_start]
+        after_words = words[phrase_end:]
+
+        # Remove trailing comma/space from before_words
+        if before_words:
+            before_words[-1] = before_words[-1].rstrip(',')
+
+        phrase_str = ' '.join(phrase_words)
+        # Capitalize first word of phrase
+        phrase_str = phrase_str[0].upper() + phrase_str[1:]
+
+        # Lowercase the old sentence start (now mid-sentence)
+        if before_words:
+            before_words[0] = before_words[0][0].lower() + before_words[0][1:]
+
+        remaining = before_words + after_words
+        remaining_str = ' '.join(remaining)
+
+        # Make sure remaining isn't empty
+        if not remaining_str.strip():
+            continue
+
+        # Reconstruct: "In the bottoms, jesse ran through mud."
+        new_sentence = f"{phrase_str}, {remaining_str}"
+
+        # Make sure we haven't mangled anything — sanity check
+        if '  ' not in new_sentence and len(new_sentence.split()) >= 4:
+            sentences[idx] = new_sentence
+            fixes_made += 1
+
+    new_pct = (len(name_opener_indices) - fixes_made) / max(len(sentences), 1) * 100
+    return ' '.join(sentences), round(new_pct, 1), fixes_made
 
 
-class SocraticMemory:
-    """Tracks session state including essays, scores, and coaching history."""
-    
-    def __init__(self):
-        self.essays = []           # All essay versions
-        self.scores_history = []   # Score dict for each version
-        self.coaching_history = [] # All coaching messages
-        self.reflection_turn = 0   # Current reflection question index
-        self.reflection_responses = []  # Student's reflection answers
-        self.coaching_turns = 0    # Total coaching interactions
-        self.max_coaching_turns = 15
-        self.model_mode_used = set()  # Track which dimensions got MODEL examples
-        self.previous_scores = {}  # For tracking dimension improvements
-        self.writing_level = "intermediate"  # Updated on each essay submission
-    
-    def add_essay(self, essay: str, scores: dict):
-        self.essays.append(essay)
-        self.scores_history.append(scores)
-        # Track previous scores for micro-celebrations
-        if len(self.scores_history) > 1:
-            self.previous_scores = {k: v['score'] for k, v in self.scores_history[-2].items()}
-    
-    def get_latest_essay(self) -> str:
-        return self.essays[-1] if self.essays else ""
-    
-    def get_latest_scores(self) -> dict:
-        return self.scores_history[-1] if self.scores_history else {}
-    
-    def get_revision_count(self) -> int:
-        return max(0, len(self.essays) - 1)
-    
-    def all_dimensions_at_target(self) -> bool:
-        scores = self.get_latest_scores()
-        return all(scores[dim]['score'] >= TARGET_SCORE for dim in DIMENSION_ORDER)
-    
-    def get_lowest_dimension(self) -> tuple:
-        """Returns (dimension_key, score_dict) for lowest scoring dimension."""
-        scores = self.get_latest_scores()
-        lowest = min(DIMENSION_ORDER, key=lambda d: scores[d]['score'])
-        return lowest, scores[lowest]
-    
-    def get_improved_dimensions(self) -> list:
-        """Returns list of dimensions that improved since last revision."""
-        if not self.previous_scores:
-            return []
-        current = self.get_latest_scores()
-        improved = []
-        for dim in DIMENSION_ORDER:
-            old_score = self.previous_scores.get(dim, 0)
-            new_score = current[dim]['score']
-            if new_score > old_score:
-                improved.append({
-                    'dimension': dim,
-                    'name': VALUE_RUBRIC[dim]['name'],
-                    'old': old_score,
-                    'new': new_score
-                })
-        return improved
-    
-    def add_coaching(self, message: str):
-        self.coaching_history.append(message)
-        self.coaching_turns += 1
-    
-    def at_turn_limit(self) -> bool:
-        return self.coaching_turns >= self.max_coaching_turns
+# ---------------------------------------------------------------------------
+# STAGE 4.4: Impact Paragraph Isolation
+# ---------------------------------------------------------------------------
 
+def isolate_impact_paragraphs(text, target_pct=30.0):
+    paragraphs = text.split('\n\n')
+    if not paragraphs:
+        return text, 0, 0
 
-class SocraticEngine:
-    """Main engine for Socratic tutoring flow."""
-    
-    PHASE_READ = "read"
-    PHASE_WRITE = "write"
-    PHASE_COACH = "coach"
-    PHASE_REFLECT = "reflect"
-    PHASE_COMPLETE = "complete"
-    
-    def __init__(self):
-        self.memory = SocraticMemory()
-        self.current_phase = self.PHASE_READ
-        self.validator = PreSubmissionValidator()
-    
-    def _update_writing_level(self, essay: str):
-        """Update the detected writing level based on latest essay."""
-        self.memory.writing_level = self.validator._estimate_writing_level(essay)
-    
-    def get_varied_coaching_opener(self, is_first: bool = False) -> str:
-        """Get a varied coaching opener to avoid repetition."""
-        if is_first:
-            return random.choice(COACHING_OPENERS_FIRST_TRY)
-        return random.choice(COACHING_OPENERS)
-    
-    def get_varied_celebration_opener(self) -> str:
-        """Get varied celebration language based on revision count."""
-        revisions = self.memory.get_revision_count()
-        s = "s" if revisions != 1 else ""
-        
-        if revisions == 0:
-            templates = CELEBRATION_MESSAGES["first_try"]
-        elif revisions <= 2:
-            templates = CELEBRATION_MESSAGES["quick_success"]
-        elif revisions <= 5:
-            templates = CELEBRATION_MESSAGES["solid_work"]
-        elif revisions >= 8:
-            templates = CELEBRATION_MESSAGES["adversarial"]
-        else:
-            templates = CELEBRATION_MESSAGES["persistence"]
-        
-        # Format with revision count
-        return "\n".join([t.format(revisions=revisions, s=s) for t in templates])
-    
-    def get_micro_celebration(self) -> str:
-        """Generate micro-celebration for improved dimensions."""
-        improved = self.memory.get_improved_dimensions()
-        if not improved:
-            return ""
-        
-        celebrations = []
-        for dim in improved:
-            template = random.choice(MICRO_CELEBRATION_TEMPLATES)
-            celebrations.append(template.format(
-                dimension=dim['name'],
-                old=dim['old'],
-                new=dim['new']
-            ))
-        
-        return " ".join(celebrations) + " "
-    
-    def score_essay(self, essay: str) -> dict:
-        """Score essay against VALUE rubric."""
-        system = SCORING_SYSTEM_PROMPT.format(rubric_text=get_rubric_text())
-        user_msg = f"ESSAY:\n{essay}\n\nPASSAGE:\n{PASSAGE_TEXT}\n\n{EDGE_CASE_RULES}"
-        
-        response = call_claude(system, user_msg, max_tokens=600)
-        
-        # Parse JSON response
-        try:
-            # Find JSON in response
-            start = response.find('{')
-            end = response.rfind('}') + 1
-            if start >= 0 and end > start:
-                scores = json.loads(response[start:end])
-                return scores
-        except json.JSONDecodeError:
-            pass
-        
-        # Fallback scores if parsing fails
-        return {dim: {"score": 2, "rationale": "Unable to parse"} for dim in DIMENSION_ORDER}
-    
-    def generate_coaching(self, dimension: str, score_data: dict, essay: str) -> str:
-        """Generate Socratic coaching question for a dimension."""
-        system = COACHING_SYSTEM_PROMPT.format(
-            writing_level=self.memory.writing_level,
-            dimension_name=VALUE_RUBRIC[dimension]['name'],
-            current_score=score_data['score'],
-            target_score=TARGET_SCORE,
-            rationale=score_data['rationale'],
-            essay=essay,
-            passage=PASSAGE_TEXT
-        )
-        
-        user_msg = f"Generate ONE focused coaching question for this student."
-        return call_claude(system, user_msg, max_tokens=250)
-    
-    def generate_model_example(self, dimension: str) -> str:
-        """Generate before/after example when student is stuck."""
-        system = MODEL_EXAMPLE_PROMPT.format(
-            dimension_name=VALUE_RUBRIC[dimension]['name'],
-            writing_level=self.memory.writing_level
-        )
-        user_msg = f"Create a brief before/after example showing how to improve {VALUE_RUBRIC[dimension]['name']}. The student writes at a {self.memory.writing_level} level."
-        return call_claude(system, user_msg, max_tokens=350)
-    
-    def generate_first_try_analysis(self, essay: str) -> str:
-        """Generate specific praise for first-try success."""
-        system = """You are a writing coach celebrating a student who wrote an excellent response on their first try.
+    short_count = sum(1 for p in paragraphs
+                      if len([s for s in re.split(r'[.!?]+', p) if s.strip()]) <= 2)
+    current_pct = (short_count / max(len(paragraphs), 1)) * 100
+    if current_pct >= target_pct * 0.8:
+        return text, round(current_pct, 1), 0
 
-Write 2 short paragraphs with headers:
+    splits_made = 0
+    new_paragraphs = []
+    impact_words = {'stopped', 'silence', 'nothing', 'gone', 'dead', 'dark',
+                    'alone', 'screamed', 'ran', 'heard', 'waited', 'empty',
+                    'still', 'quiet', 'frozen', 'cold'}
 
-**WHAT YOU DID WELL:**
-Point out 2-3 specific things they did well. Reference their actual essay. Focus on academic writing skills: signal phrases, thesis clarity, evidence integration, vocabulary precision.
-
-**WHY THIS WORKED:**
-Explain WHY these choices made their writing strong. Help them understand the principle so they can repeat it.
-
-Keep total response to 4-6 sentences. Be warm but specific."""
-        
-        user_msg = f"ESSAY:\n{essay}\n\nSCORES: All 5 dimensions at 3/4 or higher on first attempt."
-        return call_claude(system, user_msg, max_tokens=350)
-    
-    def generate_improvement_insight(self, essay: str, first_essay: str) -> str:
-        """Generate analysis of what changed between versions."""
-        system = """You are a writing coach explaining what improved between essay versions.
-
-Write a brief analysis (3-4 sentences) explaining:
-1. The KEY change that made the difference
-2. WHY that change strengthened the argument
-3. A specific before/after example from their actual essays
-
-Focus on academic writing improvements: evidence integration, signal phrases, thesis clarity, reasoning depth, academic register.
-
-Keep it specific and actionable - reference their actual words."""
-        
-        user_msg = f"FIRST ESSAY:\n{first_essay}\n\nFINAL ESSAY:\n{essay}"
-        return call_claude(system, user_msg, max_tokens=300)
-    
-    def should_show_roadmap(self) -> bool:
-        """Determine if roadmap prompt should be shown (only when Organization <= 2)."""
-        scores = self.memory.get_latest_scores()
-        if not scores:
-            return True  # Show on first submission
-        return scores.get('organization', {}).get('score', 0) <= 2
-    
-    def process_initial_essay(self, essay: str) -> dict:
-        """Process first essay submission."""
-        self._update_writing_level(essay)
-        scores = self.score_essay(essay)
-        self.memory.add_essay(essay, scores)
-        
-        # Check if already at target
-        if self.memory.all_dimensions_at_target():
-            analysis = self.generate_first_try_analysis(essay)
-            
-            message = f"## ✓ {CELEBRATION_MESSAGES['first_try'][0]}\n\n"
-            message += f"{CELEBRATION_MESSAGES['first_try'][1]}\n\n"
-            message += f"{analysis}\n\n"
-            message += "---\n\n"
-            message += "**Your essay:**\n\n"
-            message += f"> {essay}\n\n"
-            message += "---\n\n"
-            message += "Since your writing is already strong, let's reflect on your process so you can repeat this next time."
-            
-            return {
-                "phase": self.PHASE_REFLECT,
-                "scores": scores,
-                "message": message
-            }
-        
-        # Generate coaching for lowest dimension
-        lowest_dim, lowest_data = self.memory.get_lowest_dimension()
-        coaching = self.generate_coaching(lowest_dim, lowest_data, essay)
-        self.memory.add_coaching(coaching)
-        
-        # Build response with conditional roadmap
-        opener = self.get_varied_coaching_opener(is_first=True)
-        
-        message = f"{opener}\n\n"
-        
-        # Only show roadmap if Organization is low
-        if self.should_show_roadmap():
-            message += f"**{ROADMAP_PROMPT}**\n\n"
-        
-        message += f"Here's my first question for you:\n\n{coaching}"
-        
-        return {
-            "phase": self.PHASE_COACH,
-            "scores": scores,
-            "message": message,
-            "focus_dimension": lowest_dim
-        }
-    
-    def process_revision(self, essay: str) -> dict:
-        """Process a revision submission."""
-        self._update_writing_level(essay)
-        prev_scores = self.memory.get_latest_scores()
-        new_scores = self.score_essay(essay)
-        self.memory.add_essay(essay, new_scores)
-        
-        # Check if at target
-        if self.memory.all_dimensions_at_target():
-            return self._build_success_message(essay)
-        
-        # Check turn limit
-        if self.memory.at_turn_limit():
-            return self._build_turn_limit_message()
-        
-        # Find lowest dimension and check for improvement
-        lowest_dim, lowest_data = self.memory.get_lowest_dimension()
-        prev_score = prev_scores.get(lowest_dim, {}).get('score', 0)
-        new_score = lowest_data['score']
-        
-        # Generate micro-celebration for any improvements
-        micro_celeb = self.get_micro_celebration()
-        
-        # Check if stuck on same dimension (trigger MODEL mode)
-        if new_score <= prev_score and lowest_dim in self.memory.model_mode_used:
-            # Already tried MODEL mode, try different approach
-            coaching = self.generate_coaching(lowest_dim, lowest_data, essay)
-            self.memory.add_coaching(coaching)
-            
-            message = micro_celeb if micro_celeb else ""
-            message += f"{coaching}"
-            
-            return {
-                "phase": self.PHASE_COACH,
-                "scores": new_scores,
-                "message": message,
-                "focus_dimension": lowest_dim
-            }
-        
-        elif new_score <= prev_score:
-            # First time stuck - use MODEL mode
-            self.memory.model_mode_used.add(lowest_dim)
-            
-            # Special handling for Evidence Use - use Quote Sandwich
-            if lowest_dim == "evidence_use":
-                model_example = QUOTE_SANDWICH_PROMPT
+    for p in paragraphs:
+        sents = [s.strip() for s in re.split(r'(?<=[.!?])\s+', p) if s.strip()]
+        if len(sents) >= 4 and splits_made < 5:
+            for i, s in enumerate(sents[1:-1], 1):
+                if (len(s.split()) <= 6 or
+                    any(w in s.lower() for w in impact_words)):
+                    before = ' '.join(sents[:i])
+                    impact = sents[i]
+                    after = ' '.join(sents[i+1:])
+                    new_paragraphs.append(before)
+                    new_paragraphs.append(impact)
+                    if after:
+                        new_paragraphs.append(after)
+                    splits_made += 1
+                    break
             else:
-                model_example = self.generate_model_example(lowest_dim)
-            
-            self.memory.add_coaching(model_example)
-            
-            message = f"## 📋 Let me show you an example:\n\n"
-            message += f"Your {VALUE_RUBRIC[lowest_dim]['name']} score hasn't moved yet, and that's okay - this one can be tricky. "
-            message += f"Let me show you an example of what I mean:\n\n"
-            message += f"{model_example}"
-            
-            return {
-                "phase": self.PHASE_COACH,
-                "scores": new_scores,
-                "message": message,
-                "focus_dimension": lowest_dim
-            }
-        
+                new_paragraphs.append(p)
         else:
-            # Score improved, generate new coaching
-            coaching = self.generate_coaching(lowest_dim, lowest_data, essay)
-            self.memory.add_coaching(coaching)
-            
-            # Build message with micro-celebration
-            opener = self.get_varied_coaching_opener()
-            
-            message = ""
-            if micro_celeb:
-                message += f"{micro_celeb}\n\n"
-            
-            # Only show roadmap if Organization is still low
-            if self.should_show_roadmap():
-                message += f"**{ROADMAP_PROMPT}**\n\n"
-            
-            message += f"{coaching}"
-            
-            return {
-                "phase": self.PHASE_COACH,
-                "scores": new_scores,
-                "message": message,
-                "focus_dimension": lowest_dim
-            }
-    
-    def _build_success_message(self, essay: str) -> dict:
-        """Build the success/celebration message."""
-        scores = self.memory.get_latest_scores()
-        revisions = self.memory.get_revision_count()
-        
-        # Get journey-aware opener
-        celebration_opener = self.get_varied_celebration_opener()
-        
-        # Generate improvement insight
-        if revisions > 0:
-            first_essay = self.memory.essays[0]
-            improvement_insight = self.generate_improvement_insight(essay, first_essay)
+            new_paragraphs.append(p)
+
+    result = '\n\n'.join(new_paragraphs)
+    new_short = sum(1 for p in new_paragraphs
+                    if len([s for s in re.split(r'[.!?]+', p) if s.strip()]) <= 2)
+    new_pct = (new_short / max(len(new_paragraphs), 1)) * 100
+    return result, round(new_pct, 1), splits_made
+
+
+# ---------------------------------------------------------------------------
+# STAGE 4.5: Paragraph Splitter
+# ---------------------------------------------------------------------------
+
+def split_long_paragraphs(text, max_words=50):
+    """
+    Break paragraphs that exceed max_words at the best sentence boundary.
+    Targets avg_paragraph_length closer to baseline (~20-30 words).
+    """
+    paragraphs = text.split('\n\n')
+    new_paragraphs = []
+    splits_made = 0
+
+    for p in paragraphs:
+        words = p.split()
+        if len(words) <= max_words:
+            new_paragraphs.append(p)
+            continue
+
+        # Split at sentence boundaries
+        sents = [s.strip() for s in re.split(r'(?<=[.!?])\s+', p) if s.strip()]
+        if len(sents) < 2:
+            new_paragraphs.append(p)
+            continue
+
+        # Find the best split point near the middle
+        current_chunk = []
+        current_words = 0
+
+        for s in sents:
+            s_words = len(s.split())
+            if current_words + s_words > max_words and current_chunk:
+                new_paragraphs.append(' '.join(current_chunk))
+                current_chunk = [s]
+                current_words = s_words
+                splits_made += 1
+            else:
+                current_chunk.append(s)
+                current_words += s_words
+
+        if current_chunk:
+            new_paragraphs.append(' '.join(current_chunk))
+
+    return '\n\n'.join(new_paragraphs), splits_made
+
+
+# ---------------------------------------------------------------------------
+# Shared: compute chapter metrics
+# ---------------------------------------------------------------------------
+
+def compute_chapter_metrics(text):
+    """Compute all 14 metrics for a chapter."""
+    words = text.split()
+    word_count = len(words)
+    sentences = [s.strip() for s in re.split(r'[.!?]+', text) if s.strip()]
+    num_sentences = max(len(sentences), 1)
+    sent_lengths = [len(s.split()) for s in sentences]
+    paragraphs = [p.strip() for p in text.split('\n\n') if p.strip()]
+
+    mean_sl = sum(sent_lengths) / max(len(sent_lengths), 1)
+    variance = sum((l - mean_sl) ** 2 for l in sent_lengths) / max(len(sent_lengths), 1)
+    stdev = variance ** 0.5
+
+    fragments = sum(1 for l in sent_lengths if l < 5)
+    em_dashes = text.count('\u2014') + text.count('--')
+    dialogue_lines = len(re.findall(r'"[^"]*"', text))
+
+    adverbs = sum(1 for w in words if w.lower().endswith('ly') and len(w) > 3
+                  and w.lower() not in NON_ADVERBS)
+
+    all_tags = re.findall(
+        r'\b(said|asked|replied|whispered|shouted|muttered|called|cried|answered|'
+        r'growled|hissed|exclaimed|declared|snapped|barked|sighed|groaned)\b',
+        text, re.IGNORECASE)
+    said_count = sum(1 for t in all_tags if t.lower() == 'said')
+
+    smoothing_count = sum(text.lower().count(w) for w in SMOOTHING_WORDS)
+
+    thought_verbs = len(re.findall(
+        r'\b(thought|wondered|realized|knew|felt|remembered|imagined|hoped|feared)\b',
+        text, re.IGNORECASE))
+
+    sentence_starts = [s.split()[0] if s.split() else '' for s in sentences]
+    name_openers = sum(1 for w in sentence_starts
+                       if w and w[0].isupper() and len(w) > 1
+                       and w.lower() not in COMMON_STARTERS)
+
+    clusters = 0
+    for i in range(len(sent_lengths) - 2):
+        a, b, c = sent_lengths[i], sent_lengths[i+1], sent_lengths[i+2]
+        if max(a, b, c) - min(a, b, c) <= 3:
+            clusters += 1
+
+    has_dialogue = len(all_tags) > 0
+
+    return {
+        "avg_sentence_length": round(mean_sl, 1),
+        "sentence_length_stdev": round(stdev, 1),
+        "fragment_pct": round((fragments / num_sentences) * 100, 1),
+        "dialogue_ratio_pct": round((dialogue_lines / max(len(text.split('\n')), 1)) * 100, 1),
+        "avg_paragraph_length": round(word_count / max(len(paragraphs), 1), 1),
+        "em_dash_per_1k": round((em_dashes / max(word_count, 1)) * 1000, 1),
+        "semicolon_per_1k": round((text.count(';') / max(word_count, 1)) * 1000, 1),
+        "exclamation_per_1k": round((text.count('!') / max(word_count, 1)) * 1000, 1),
+        "question_per_1k": round((text.count('?') / max(word_count, 1)) * 1000, 1),
+        "interiority_pct": round((thought_verbs / num_sentences) * 100, 1),
+        "adverb_per_1k": round((adverbs / max(word_count, 1)) * 1000, 1),
+        "smoothing_per_1k": round((smoothing_count / max(word_count, 1)) * 1000, 1),
+        "name_opener_pct": round((name_openers / num_sentences) * 100, 1),
+        "said_ratio_pct": round((said_count / max(len(all_tags), 1)) * 100, 1),
+        "_word_count": word_count,
+        "_sentence_count": num_sentences,
+        "_rhythm_stdev": round(stdev, 1),
+        "_rhythm_clusters": clusters,
+        "_has_dialogue": has_dialogue,
+        "_all_tags": all_tags,
+        "_adverb_per_1k": round((adverbs / max(word_count, 1)) * 1000, 1),
+    }
+
+
+# ---------------------------------------------------------------------------
+# STAGE 5: Quality Gate
+# ---------------------------------------------------------------------------
+
+def run_quality_gate(text, metrics, scene_type="reflective"):
+    """Score the chapter. Only penalize REAL problems, not style compliance."""
+    issues = []
+    score = 0
+    text_lower = text.lower()
+
+    # --- Style compliance ---
+    if metrics.get("_word_count", 0) > 0:
+        raw_em = text.count('\u2014') + text.count('--')
+        if raw_em > 0:
+            issues.append(f"[STYLE] Em-dashes remaining: {raw_em}")
+            score += raw_em * 3
+
+    semicolons = text.count(';')
+    if semicolons > 0:
+        issues.append(f"[STYLE] Semicolons: {semicolons}")
+        score += semicolons
+
+    # --- Contamination ---
+    banned = ['delve', 'tapestry', 'unbeknownst', 'whilst', 'amidst',
+              'little did he know', 'a chill ran down', 'the weight of',
+              'something was off', 'pierced the silence', 'hung in the air',
+              'sent shivers', 'etched across', 'knuckles whitened']
+    for bw in banned:
+        if bw in text_lower:
+            issues.append(f"[CONTAMINATION] '{bw}'")
+            score += 3
+
+    for sw in SMOOTHING_WORDS:
+        count = text_lower.count(sw.lower())
+        if count > 0:
+            issues.append(f"[CONTAMINATION] Smoothing: '{sw}' x{count}")
+            score += count * 2
+
+    # --- Dialogue tags (only if chapter has dialogue) ---
+    if metrics["_has_dialogue"]:
+        all_tags = metrics["_all_tags"]
+        creative = [t for t in all_tags if t.lower() not in
+                    ('said', 'asked', 'replied', 'whispered', 'shouted',
+                     'called', 'cried', 'answered')]
+        if creative:
+            unique = set(t.lower() for t in creative)
+            issues.append(f"[TAGS] Creative: {', '.join(unique)}")
+            score += len(unique)
+        if metrics["said_ratio_pct"] < 60:
+            issues.append(f"[TAGS] Said ratio: {metrics['said_ratio_pct']:.0f}% (want 70%+)")
+            score += 1
+
+    # --- Adverbs (only alarm if WAY over, not if slightly under) ---
+    if metrics["_adverb_per_1k"] > 12:
+        issues.append(f"[ADVERBS] High: {metrics['_adverb_per_1k']:.1f}/1k (want <12)")
+        score += 2
+
+    # --- Rhythm ---
+    if metrics["_rhythm_clusters"] > 3:
+        issues.append(f"[RHYTHM] {metrics['_rhythm_clusters']} monotonous clusters (want ≤3)")
+        score += metrics["_rhythm_clusters"] - 3
+    if metrics["_rhythm_stdev"] < 3:
+        issues.append(f"[RHYTHM] Low variance: {metrics['_rhythm_stdev']:.1f}")
+        score += 2
+
+    # --- Name openers ---
+    if metrics["name_opener_pct"] > 60:
+        issues.append(f"[OPENERS] {metrics['name_opener_pct']:.0f}% (want <60%)")
+        score += 2
+
+    # --- Dialogue ratio (scene-type aware) ---
+    target_range = SCENE_TYPE_DIALOGUE_TARGETS.get(scene_type, (0, 50))
+    dial_pct = metrics["dialogue_ratio_pct"]
+    if dial_pct < target_range[0] or dial_pct > target_range[1]:
+        if not (dial_pct == 0 and target_range[0] == 0):
+            issues.append(f"[DIALOGUE] {dial_pct:.0f}% (want {target_range[0]}-{target_range[1]}% for {scene_type})")
+            score += 2
+
+    return {
+        "total_score": score,
+        "issues": issues,
+        "word_count": metrics["_word_count"],
+        "sentence_count": metrics["_sentence_count"],
+    }
+
+
+# ---------------------------------------------------------------------------
+# STAGE 6: Voice Delta (style-rule-aware)
+# ---------------------------------------------------------------------------
+
+def compute_voice_delta(metrics, baseline_metrics, scene_type="reflective"):
+    """Compare chapter metrics vs baseline. Respects style overrides."""
+    target_range = SCENE_TYPE_DIALOGUE_TARGETS.get(scene_type, (0, 50))
+    has_dialogue = metrics.get("_has_dialogue", False)
+
+    delta = {}
+    for metric in ["avg_sentence_length", "sentence_length_stdev", "fragment_pct",
+                    "dialogue_ratio_pct", "avg_paragraph_length", "em_dash_per_1k",
+                    "semicolon_per_1k", "exclamation_per_1k", "question_per_1k",
+                    "interiority_pct", "adverb_per_1k", "smoothing_per_1k",
+                    "name_opener_pct", "said_ratio_pct"]:
+
+        chapter_val = metrics.get(metric, 0)
+        baseline_val = baseline_metrics.get(metric, 0)
+
+        # RULE 1: Style overrides
+        if metric in STYLE_OVERRIDES:
+            target = STYLE_OVERRIDES[metric]
+            if chapter_val <= target:
+                severity = "ok"
+            else:
+                severity = "alarm"
+            delta[metric] = {"baseline": baseline_val, "chapter": chapter_val,
+                             "target": target, "severity": severity}
+            continue
+
+        # RULE 2: Skip dialogue-dependent metrics if no dialogue
+        if metric in DIALOGUE_DEPENDENT_METRICS and not has_dialogue:
+            delta[metric] = {"baseline": baseline_val, "chapter": chapter_val,
+                             "severity": "n/a (no dialogue)"}
+            continue
+
+        # RULE 3: Scene-type-aware dialogue ratio
+        if metric == "dialogue_ratio_pct":
+            if target_range[0] <= chapter_val <= target_range[1]:
+                severity = "ok"
+            else:
+                severity = "drift"
+            delta[metric] = {"baseline": baseline_val, "chapter": chapter_val,
+                             "severity": severity}
+            continue
+
+        # RULE 4: Standard drift calculation
+        if isinstance(baseline_val, (int, float)) and baseline_val > 0:
+            pct_drift = abs(chapter_val - baseline_val) / baseline_val
+            if pct_drift < 0.25:
+                severity = "ok"
+            elif pct_drift < 0.5:
+                severity = "drift"
+            else:
+                severity = "alarm"
+        elif chapter_val == 0:
+            severity = "ok"
         else:
-            improvement_insight = ""
-        
-        message = f"## ✓ {celebration_opener}\n\n"
-        
-        # Show score progress
-        if revisions > 0:
-            message += "**What changed:**\n\n"
-            for dim in DIMENSION_ORDER:
-                first_score = self.memory.scores_history[0][dim]['score']
-                final_score = scores[dim]['score']
-                if final_score > first_score:
-                    message += f"- **{VALUE_RUBRIC[dim]['name']}:** {first_score} → {final_score} ⬆️\n"
-                else:
-                    message += f"- **{VALUE_RUBRIC[dim]['name']}:** {first_score} → {final_score} ➡️\n"
-            message += "\n"
-        
-        # Add improvement insight
-        if improvement_insight:
-            message += f"**What made the difference:** {improvement_insight}\n\n"
-        
-        message += "---\n\n"
-        message += "**Where you started:**\n\n"
-        message += f"> {self.memory.essays[0]}\n\n"
-        message += "**Where you are now:**\n\n"
-        message += f"> {essay}\n\n"
-        message += "---\n\n"
-        message += "Your writing is stronger now. Let's take a few minutes to reflect on what you learned so you can use these skills again."
-        
-        return {
-            "phase": self.PHASE_REFLECT,
-            "scores": scores,
-            "message": message
+            severity = "ok"
+
+        delta[metric] = {"baseline": baseline_val, "chapter": chapter_val,
+                         "severity": severity}
+
+    return delta
+
+
+# ---------------------------------------------------------------------------
+# MAIN: produce_chapter
+# ---------------------------------------------------------------------------
+
+def produce_chapter(bible_text, baseline_metrics, chapter_beats, scene_type, config=None):
+    client = get_anthropic_client()
+
+    # Build voice target string for prompts
+    voice_targets = []
+    for metric, value in baseline_metrics.items():
+        label = metric.replace("_", " ").replace("pct", "%").replace("per 1k", "/1k")
+        voice_targets.append(f"  - {label}: {value}")
+    voice_target_str = "\n".join(voice_targets)
+
+    # Get interiority and adverb targets from baseline
+    target_interiority = baseline_metrics.get("interiority_pct", 4.0)
+    target_adverb = baseline_metrics.get("adverb_per_1k", 7.0)
+
+    # ---- STAGE 2: DRAFT ----
+    draft_prompt = f"""You are a fiction ghostwriter. Write a chapter based on the project bible
+and chapter beats below. Write in the author's voice.
+
+PROJECT BIBLE:
+{bible_text}
+
+CHAPTER TO WRITE:
+{chapter_beats}
+
+Scene type: {scene_type}
+
+VOICE TARGETS:
+{voice_target_str}
+
+CRITICAL RULES:
+- Write ONLY chapter prose. No headers, no commentary, no "Chapter X:" label.
+- Match the Voice Guide's sentence rhythm.
+- Follow ALL rules in the Style Brief exactly.
+- "said" for 70%+ of dialogue tags. Action beats for rest. No creative tags.
+- NO em-dashes. Use periods and fragments instead.
+- NO smoothing words (however, moreover, furthermore, nevertheless, indeed, certainly, naturally, obviously).
+- NO purple prose. Concrete sensory details only.
+- NO words from the NEVER list.
+- Hit the target word count.
+- End the chapter exactly as the beats describe.
+
+INTERIORITY — This is critical for voice match:
+- The narrator is an internal processor. Weave thought verbs into the narration naturally.
+- Use words like: thought, wondered, knew, felt, realized, remembered, figured, guessed, hoped, feared.
+- Target: roughly {target_interiority:.0f}% of sentences should contain a thought verb.
+- Blend them in: "I knew Daddy would be mad" not "I thought to myself that Daddy would be mad."
+- More interiority in reflective/quiet moments, less during pure action.
+
+ADVERBS — Use them sparingly but naturally:
+- Target: about {target_adverb:.0f} per 1,000 words. Not zero.
+- Good adverbs earn their place: "barely", "mostly", "nearly", "quietly"
+- Bad adverbs modify dialogue tags: "said softly" — don't do this.
+- A chapter with zero adverbs sounds mechanical. A few feel human.
+
+PARAGRAPHING:
+- Use blank lines between paragraphs.
+- Keep paragraphs short: 2-4 sentences average.
+- Use 1-sentence paragraphs for impact moments.
+- A new paragraph for each speaker in dialogue.
+- A new paragraph when the camera moves or time shifts.
+
+Write the chapter now. Prose only."""
+
+    draft_response = client.messages.create(
+        model="claude-sonnet-4-20250514",
+        max_tokens=4000,
+        messages=[{"role": "user", "content": draft_prompt}]
+    )
+    draft_text = draft_response.content[0].text
+    draft_input = draft_response.usage.input_tokens
+    draft_output = draft_response.usage.output_tokens
+
+    # ---- STAGE 3: CORRECTIVE REWRITE ----
+    rewrite_prompt = f"""You are a fiction editor. Rewrite the draft to better match the author's voice.
+
+DRAFT:
+{draft_text}
+
+VOICE TARGETS:
+{voice_target_str}
+
+REWRITE RULES:
+- Remove ALL em-dashes. Replace with periods + fragments.
+- Remove ALL semicolons. Replace with periods.
+- "said" for 70%+ of dialogue tags. Replace creative tags with said or action beats.
+- Remove ALL smoothing words (however, moreover, furthermore, nevertheless, indeed,
+  certainly, naturally, obviously, of course, in fact). Restructure sentences without them.
+- Remove ALL banned words (delve, tapestry, something was off, the weight of, a chill ran down,
+  little did he know, unbeknownst, whilst, amidst).
+- Use sentence fragments frequently in action/fear. Rare in calm scenes.
+- Use concrete details: name specific trees, birds, sounds.
+- Vary sentence length. Mix short punchy with longer rolling. No monotony.
+- Ensure ending matches the beats exactly.
+
+INTERIORITY — Preserve and enhance:
+- Keep all thought verbs from the draft (thought, wondered, knew, felt, realized, remembered).
+- If interiority is low, ADD thought verbs blended into narration.
+- Target: ~{target_interiority:.0f}% of sentences should have a thought verb.
+- "I knew" / "I figured" / "I wondered" are the character's voice. Don't cut them.
+
+ADVERBS — Keep the good ones:
+- Do NOT strip all adverbs. Target ~{target_adverb:.0f} per 1,000 words.
+- Cut adverbs that modify dialogue tags ("said quietly").
+- Keep adverbs that add meaning: "barely breathing", "mostly quiet", "nearly dark".
+- A few well-placed adverbs sound natural. Zero sounds robotic.
+
+PARAGRAPHING — Critical:
+- Separate every paragraph with a blank line.
+- Keep paragraphs to 2-4 sentences average.
+- Use 1-sentence paragraphs for impact moments.
+- New paragraph for each speaker change in dialogue.
+- Average paragraph length target: ~{baseline_metrics.get('avg_paragraph_length', 20):.0f} words.
+
+Output ONLY the rewritten chapter. No commentary."""
+
+    rewrite_response = client.messages.create(
+        model="claude-sonnet-4-20250514",
+        max_tokens=4000,
+        messages=[{"role": "user", "content": rewrite_prompt}]
+    )
+    text = rewrite_response.content[0].text
+    rewrite_input = rewrite_response.usage.input_tokens
+    rewrite_output = rewrite_response.usage.output_tokens
+
+    # ---- STAGE 4.1: EM-DASH REMOVAL ----
+    text, em_removed = remove_em_dashes(text)
+
+    # ---- STAGE 4.2: SMOOTHING REMOVAL ----
+    text, smooth_removed = remove_smoothing_words(text)
+
+    # ---- STAGE 4.3: OPENER FIX ----
+    text, opener_pct, openers_fixed = fix_name_openers(text)
+
+    # ---- STAGE 4.4: IMPACT ISOLATION ----
+    text, impact_pct, impacts_split = isolate_impact_paragraphs(text)
+
+    # ---- STAGE 4.5: PARAGRAPH SPLITTER ----
+    text, para_splits = split_long_paragraphs(text, max_words=50)
+
+    # ---- Compute metrics once ----
+    metrics = compute_chapter_metrics(text)
+
+    # ---- STAGE 5: QUALITY GATE ----
+    quality_report = run_quality_gate(text, metrics, scene_type)
+
+    # ---- STAGE 6: VOICE DELTA ----
+    voice_delta = compute_voice_delta(metrics, baseline_metrics, scene_type)
+
+    # ---- Hotspots ----
+    hotspots = []
+    if em_removed > 0:
+        hotspots.append({"type": "fix", "text": f"Removed {em_removed} em-dashes"})
+    if smooth_removed > 0:
+        hotspots.append({"type": "fix", "text": f"Removed {smooth_removed} smoothing words"})
+    if openers_fixed > 0:
+        hotspots.append({"type": "fix", "text": f"Fixed {openers_fixed} name openers → {opener_pct}%"})
+    if impacts_split > 0:
+        hotspots.append({"type": "fix", "text": f"Split {impacts_split} impact paragraphs → {impact_pct}%"})
+    if para_splits > 0:
+        hotspots.append({"type": "fix", "text": f"Split {para_splits} long paragraphs"})
+    for issue in quality_report.get("issues", []):
+        hotspots.append({"type": "issue", "text": issue})
+
+    # ---- Tokens ----
+    total_input = draft_input + rewrite_input
+    total_output = draft_output + rewrite_output
+    cost = (total_input / 1_000_000 * 3) + (total_output / 1_000_000 * 15)
+
+    return {
+        "chapter_text": text,
+        "word_count": metrics["_word_count"],
+        "quality_score": quality_report["total_score"],
+        "quality_report": quality_report,
+        "voice_delta": voice_delta,
+        "hotspots": hotspots,
+        "manifest": {
+            "pipeline_version": "web-v3",
+            "scene_type": scene_type,
+            "stages": ["draft", "rewrite", "em_dash_removal", "smoothing_removal",
+                       "opener_fix", "impact_isolation", "paragraph_split",
+                       "quality_gate", "voice_delta"],
+            "model": "claude-sonnet-4-20250514",
+            "post_process": {
+                "em_dashes_removed": em_removed,
+                "smoothing_removed": smooth_removed,
+                "openers_fixed": openers_fixed,
+                "impacts_split": impacts_split,
+                "paragraphs_split": para_splits,
+            },
+            "total_input_tokens": total_input,
+            "total_output_tokens": total_output
+        },
+        "api_usage": {
+            "input_tokens": total_input,
+            "output_tokens": total_output,
+            "cost": round(cost, 4)
         }
-    
-    def _build_turn_limit_message(self) -> dict:
-        """Build message when coaching turn limit is reached."""
-        scores = self.memory.get_latest_scores()
-        essay = self.memory.get_latest_essay()
-        
-        message = "## Session Limit Reached\n\n"
-        message += f"We've worked through {self.memory.coaching_turns} coaching turns together. "
-        message += "Let's pause and reflect on what you've learned.\n\n"
-        
-        # Show final scores
-        message += "**Your final scores:**\n"
-        for dim in DIMENSION_ORDER:
-            score = scores[dim]['score']
-            status = "🟢" if score >= TARGET_SCORE else "🟡" if score == 2 else "🔴"
-            message += f"- {status} {VALUE_RUBRIC[dim]['name']}: {score}/4\n"
-        
-        message += "\n---\n\n"
-        message += "**Your essay:**\n\n"
-        message += f"> {essay}\n\n"
-        message += "---\n\n"
-        message += "Let's reflect on what you learned during this session."
-        
-        return {
-            "phase": self.PHASE_REFLECT,
-            "scores": scores,
-            "message": message
-        }
-    
-    def process_reflection(self, response: str) -> dict:
-        """Process reflection response and return next reflection or completion."""
-        self.memory.reflection_responses.append(response)
-        
-        # Get current reflection prompt
-        current_prompt = REFLECTION_PROMPTS[self.memory.reflection_turn]
-        
-        # Generate followup to their response
-        level_instruction = f"\n\nIMPORTANT: The student writes at a '{self.memory.writing_level}' level. Match your language to theirs — if they write simply, respond simply. If they write with sophistication, match that."
-        followup = call_claude(
-            current_prompt['followup_system'] + level_instruction,
-            f"Student said: {response}",
-            max_tokens=150
-        )
-        
-        # Move to next reflection turn
-        self.memory.reflection_turn += 1
-        
-        # Check if more reflection questions
-        if self.memory.reflection_turn < len(REFLECTION_PROMPTS):
-            next_question = REFLECTION_PROMPTS[self.memory.reflection_turn]['question']
-            return {
-                "phase": self.PHASE_REFLECT,
-                "message": f"{followup}\n\n**{next_question}**"
-            }
-        else:
-            # Reflection complete
-            return {
-                "phase": self.PHASE_COMPLETE,
-                "message": followup
-            }
-    
-    def get_session_stats(self) -> dict:
-        """Return session statistics."""
-        return {
-            "revisions": self.memory.get_revision_count(),
-            "coaching_turns": self.memory.coaching_turns,
-            "essay_versions": len(self.memory.essays),
-            "reflection_turns": self.memory.reflection_turn,
-            "final_scores": self.memory.get_latest_scores()
-        }
+    }
